@@ -2,11 +2,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "functions": {
-    "api/ebay/[[...slug]].js": {
-      "runtime": "@vercel/node@3.0.0"
-    }
-  },
+  "installCommand": "npm install",
   "rewrites": [
     { "source": "/api/ebay/:path*", "destination": "/api/ebay/[[...slug]]" },
     { "source": "/api/ebay", "destination": "/api/ebay/[[...slug]]" }
