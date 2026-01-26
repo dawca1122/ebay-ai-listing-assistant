@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Product, ProductStatus, ProductCondition, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS} from '../types';
-import { generateProductDetails, suggestCategory } from '../services/geminiService';
+import { generateProductWithResearch, suggestCategory } from '../services/geminiService';
 import * as XLSX from 'xlsx';
 
 interface ProductsTabProps {
@@ -357,33 +357,49 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
       try {
         updateProduct(product.id, { status: ProductStatus.AI_PROCESSING });
         
-        const details = await generateProductDetails(
+        // Sprawdź czy używamy research
+        const useResearch = settings.geminiModels?.productResearch !== undefined;
+        
+        if (useResearch) {
+          setProcessingStep(`🔬 Research: ${product.inputName}...`);
+        }
+        
+        const result = await generateProductWithResearch(
           settings.geminiKey,
           product.inputName,
           product.ean,
           `${settings.aiRules.systemPrompt}\n\nSKU Rules: ${settings.aiRules.skuRules}\nTitle Rules: ${settings.aiRules.titleRules}\nDescription Rules: ${settings.aiRules.descriptionRules}\nForbidden: ${settings.aiRules.forbiddenWords}\nShop Category: ${product.shopCategory}\nCondition: ${product.condition}`,
-          settings.geminiModels?.titleDescription,
-          settings.aiInstructions?.titlePrompt,
-          settings.aiInstructions?.descriptionPrompt
+          {
+            useResearch: useResearch,
+            researchModel: settings.geminiModels?.productResearch,
+            researchPrompt: settings.aiInstructions?.productResearchPrompt,
+            generateModel: settings.geminiModels?.titleDescription,
+            titlePrompt: settings.aiInstructions?.titlePrompt,
+            descriptionPrompt: settings.aiInstructions?.descriptionPrompt
+          }
         );
 
         updateProduct(product.id, {
-          sku: product.sku ? `${product.sku}-${details.sku}` : details.sku, // Preserve user prefix
-          title: details.title,
-          descriptionHtml: details.descriptionHtml,
-          keywords: details.keywords || '',
+          sku: product.sku ? `${product.sku}-${result.sku}` : result.sku, // Preserve user prefix
+          title: result.title,
+          descriptionHtml: result.descriptionHtml,
+          keywords: result.keywords || '',
           status: ProductStatus.AI_DONE,
           lastError: ''
         });
 
         addLog({
           productId: product.id,
-          sku: details.sku,
+          sku: result.sku,
           ean: product.ean,
           stage: LogStage.AI,
-          action: 'AI Generate',
+          action: useResearch ? 'AI Generate + Research' : 'AI Generate',
           success: true,
-          responseBody: { sku: details.sku, title: details.title }
+          responseBody: { 
+            sku: result.sku, 
+            title: result.title,
+            hasResearch: !!result.researchReport
+          }
         });
       } catch (err: any) {
         updateProduct(product.id, {

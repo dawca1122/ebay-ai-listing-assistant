@@ -64,6 +64,7 @@ export type GeminiModelId = keyof typeof GEMINI_MODELS;
 // Ustawienia modeli dla różnych zadań
 export interface GeminiModelSettings {
   titleDescription: GeminiModelId;    // Tytuły i opisy produktów
+  productResearch: GeminiModelId;     // Wyszukiwanie info o produkcie
   priceSearch: GeminiModelId;         // Szukanie cen konkurencji
   tableAnalysis: GeminiModelId;       // Analiza tabeli importu
   categorySearch: GeminiModelId;      // Szukanie kategorii eBay
@@ -71,6 +72,7 @@ export interface GeminiModelSettings {
 
 // Instrukcje AI dla różnych zadań
 export interface AiInstructions {
+  productResearchPrompt: string;      // Instrukcje wyszukiwania info o produkcie
   titlePrompt: string;                // Instrukcje dla generowania tytułów
   descriptionPrompt: string;          // Instrukcje dla opisów
   priceSearchPrompt: string;          // Instrukcje szukania cen
@@ -100,6 +102,7 @@ export interface AppSettings {
 // Domyślne ustawienia modeli
 export const DEFAULT_GEMINI_MODELS: GeminiModelSettings = {
   titleDescription: 'gemini-2.5-flash',
+  productResearch: 'deep-research-pro-preview',
   priceSearch: 'gemini-2.5-flash',
   tableAnalysis: 'gemini-2.5-pro',
   categorySearch: 'gemini-2.5-flash',
@@ -107,6 +110,12 @@ export const DEFAULT_GEMINI_MODELS: GeminiModelSettings = {
 
 // Domyślne instrukcje AI
 export const DEFAULT_AI_INSTRUCTIONS: AiInstructions = {
+  productResearchPrompt: `Wyszukaj szczegółowe informacje o produkcie na podstawie EAN lub nazwy.
+- Znajdź oficjalną nazwę produktu, markę, model
+- Znajdź specyfikacje techniczne (wymiary, waga, materiały, funkcje)
+- Znajdź kluczowe cechy i zalety produktu
+- Sprawdź oryginalne opakowanie i zawartość zestawu
+- Użyj Google Search do znalezienia oficjalnych źródeł`,
   titlePrompt: `Generuj profesjonalne tytuły do aukcji eBay.de w języku niemieckim.
 - Max 80 znaków
 - Zawieraj markę, model, kluczowe cechy

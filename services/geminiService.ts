@@ -4,6 +4,7 @@ import { Product, GeminiModelId, AiInstructions } from "../types";
 
 // Default model if not specified
 const DEFAULT_MODEL = "gemini-2.5-flash";
+const RESEARCH_MODEL = "deep-research-pro-preview";
 
 export const testConnection = async (apiKey: string, model?: GeminiModelId): Promise<boolean> => {
   if (!apiKey) return false;
@@ -18,6 +19,47 @@ export const testConnection = async (apiKey: string, model?: GeminiModelId): Pro
     console.error("Gemini test failed", e);
     return false;
   }
+};
+
+// ============ PRODUCT RESEARCH ============
+export const researchProduct = async (
+  apiKey: string,
+  name: string,
+  ean: string,
+  model?: GeminiModelId,
+  customPrompt?: string
+): Promise<string> => {
+  if (!apiKey) throw new Error("Missing Gemini API Key");
+
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const basePrompt = customPrompt || `Wyszukaj szczegółowe informacje o produkcie.
+Znajdź oficjalną nazwę, markę, model, specyfikacje techniczne.
+Znajdź kluczowe cechy i zalety produktu.
+Użyj Google Search do znalezienia oficjalnych źródeł.`;
+
+  const prompt = `${basePrompt}
+
+Product: "${name}"
+EAN: ${ean || 'brak'}
+
+Zwróć szczegółowy raport o produkcie zawierający:
+- Pełna oficjalna nazwa produktu
+- Marka i model
+- Specyfikacje techniczne (wymiary, waga, materiały, funkcje)
+- Zawartość zestawu
+- Kluczowe cechy i zalety
+- Słowa kluczowe dla SEO`;
+
+  const response = await ai.models.generateContent({
+    model: model || RESEARCH_MODEL,
+    contents: prompt,
+    config: {
+      tools: [{ googleSearch: {} }]
+    }
+  });
+
+  return response.text || "";
 };
 
 export const fetchCompetitionData = async (
@@ -114,21 +156,26 @@ export const generateProductDetails = async (
   instructions: string,
   model?: GeminiModelId,
   titlePrompt?: string,
-  descriptionPrompt?: string
+  descriptionPrompt?: string,
+  researchData?: string
 ): Promise<Partial<Product>> => {
   if (!apiKey) throw new Error("Missing Gemini API Key");
 
   const ai = new GoogleGenAI({ apiKey });
   
+  const researchSection = researchData 
+    ? `\n\n=== WYNIKI BADAŃ PRODUKTU ===\n${researchData}\n=== KONIEC BADAŃ ===\n\nWykorzystaj powyższe informacje z badań do stworzenia bogatego, szczegółowego opisu.\n`
+    : '';
+  
   const prompt = `${titlePrompt || 'Generuj profesjonalne tytuły do aukcji eBay.de w języku niemieckim.'}
 
 ${descriptionPrompt || 'Generuj opisy produktów dla eBay.de w HTML. Język niemiecki, profesjonalny ton.'}
-
+${researchSection}
 Product Name: ${name}
 EAN: ${ean}
 Additional Rules: ${instructions}
 
-Generate SKU, Title (max 80 chars, German), Description (HTML, German), Keywords, and suggested price.`;
+Generate SKU, Title (max 80 chars, German), Description (HTML, German with detailed features from research), Keywords, and suggested price.`;
 
   const response = await ai.models.generateContent({
     model: model || DEFAULT_MODEL,
@@ -156,6 +203,59 @@ Generate SKU, Title (max 80 chars, German), Description (HTML, German), Keywords
     console.error("Failed to parse AI response", e);
     throw new Error("AI returned invalid JSON formatting.");
   }
+};
+
+// Pełny pipeline: research + generowanie
+export const generateProductWithResearch = async (
+  apiKey: string,
+  name: string,
+  ean: string,
+  instructions: string,
+  options: {
+    useResearch?: boolean;
+    researchModel?: GeminiModelId;
+    researchPrompt?: string;
+    generateModel?: GeminiModelId;
+    titlePrompt?: string;
+    descriptionPrompt?: string;
+  } = {}
+): Promise<Partial<Product> & { researchReport?: string }> => {
+  let researchData: string | undefined;
+  
+  // Krok 1: Research (jeśli włączony)
+  if (options.useResearch) {
+    try {
+      console.log('🔍 Starting product research...');
+      researchData = await researchProduct(
+        apiKey,
+        name,
+        ean,
+        options.researchModel,
+        options.researchPrompt
+      );
+      console.log('✅ Research completed');
+    } catch (error) {
+      console.warn('⚠️ Research failed, continuing without:', error);
+    }
+  }
+  
+  // Krok 2: Generowanie tytułu i opisu
+  console.log('📝 Generating product details...');
+  const productDetails = await generateProductDetails(
+    apiKey,
+    name,
+    ean,
+    instructions,
+    options.generateModel,
+    options.titlePrompt,
+    options.descriptionPrompt,
+    researchData
+  );
+  
+  return {
+    ...productDetails,
+    researchReport: researchData
+  };
 };
 
 export const suggestCategory = async (

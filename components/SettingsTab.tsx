@@ -866,6 +866,30 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
                     {GEMINI_MODELS[settings.geminiModels?.categorySearch || 'gemini-2.5-flash']?.desc}
                   </p>
                 </div>
+                
+                {/* Product Research */}
+                <div className="md:col-span-2 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200">
+                  <label className="block text-[10px] font-black uppercase text-purple-600 mb-2 ml-1">
+                    🔬 Research Produktu (Deep Search)
+                  </label>
+                  <select
+                    value={settings.geminiModels?.productResearch || 'deep-research-pro-preview'}
+                    onChange={(e) => updateSection('geminiModels', { productResearch: e.target.value as GeminiModelId })}
+                    className="w-full px-4 py-3 bg-white border border-purple-200 rounded-xl text-sm"
+                  >
+                    {Object.entries(GEMINI_MODELS).map(([id, info]) => (
+                      <option key={id} value={id}>
+                        {info.name} ({info.tier})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-purple-500 mt-1 ml-1">
+                    {GEMINI_MODELS[settings.geminiModels?.productResearch || 'deep-research-pro-preview']?.desc}
+                  </p>
+                  <p className="text-[9px] text-slate-500 mt-2 ml-1">
+                    ⚡ Ten model wyszukuje w internecie informacje o produkcie przed generowaniem tytułu/opisu
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -941,6 +965,22 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono h-24 resize-none"
                     placeholder="Instrukcje dla analizy importowanej tabeli..."
                   />
+                </div>
+                
+                {/* Product Research Prompt */}
+                <div className="p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200">
+                  <label className="block text-[10px] font-black uppercase text-purple-600 mb-2 ml-1">
+                    🔬 Instrukcja: Research Produktu
+                  </label>
+                  <textarea
+                    value={settings.aiInstructions?.productResearchPrompt || ''}
+                    onChange={(e) => updateSection('aiInstructions', { productResearchPrompt: e.target.value })}
+                    className="w-full px-4 py-3 bg-white border border-purple-200 rounded-xl text-sm font-mono h-32 resize-none"
+                    placeholder="Instrukcje dla wyszukiwania informacji o produkcie w internecie..."
+                  />
+                  <p className="text-[9px] text-purple-500 mt-2">
+                    💡 Ten prompt jest używany przez model Deep Research do wyszukiwania szczegółowych informacji o produkcie
+                  </p>
                 </div>
               </div>
               
