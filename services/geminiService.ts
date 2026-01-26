@@ -253,10 +253,10 @@ export const generateProductWithResearch = async (
     researchData
   );
   
-  // Krok 3: Dołącz firmowy baner do opisu
+  // Krok 3: Dołącz firmowy baner NA POCZĄTKU opisu
   if (options.companyBanner && productDetails.descriptionHtml) {
-    productDetails.descriptionHtml = productDetails.descriptionHtml + '\n' + options.companyBanner;
-    console.log('🎨 Company banner added to description');
+    productDetails.descriptionHtml = options.companyBanner + '\n' + productDetails.descriptionHtml;
+    console.log('🎨 Company banner added to beginning of description');
   }
   
   return {

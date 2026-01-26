@@ -51,7 +51,19 @@ const App: React.FC = () => {
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('ebay_ai_settings');
-    return saved ? JSON.parse(saved) : INITIAL_SETTINGS;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Merge z INITIAL_SETTINGS żeby nowe pola (np. companyBanner) były dostępne
+      return {
+        ...INITIAL_SETTINGS,
+        ...parsed,
+        geminiModels: { ...INITIAL_SETTINGS.geminiModels, ...parsed.geminiModels },
+        aiInstructions: { ...INITIAL_SETTINGS.aiInstructions, ...parsed.aiInstructions },
+        // Jeśli companyBanner nie istnieje, użyj domyślnego
+        companyBanner: parsed.companyBanner !== undefined ? parsed.companyBanner : INITIAL_SETTINGS.companyBanner
+      };
+    }
+    return INITIAL_SETTINGS;
   });
 
   const [lastError, setLastError] = useState<string | null>(null);

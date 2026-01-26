@@ -1083,7 +1083,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
         
         <div className="space-y-6">
           <p className="text-sm text-slate-500">
-            Ten baner HTML będzie automatycznie dodawany na końcu każdego opisu produktu.
+            Ten baner HTML będzie automatycznie dodawany <strong>na początku</strong> każdego opisu produktu (przed treścią).
           </p>
           
           <div>
