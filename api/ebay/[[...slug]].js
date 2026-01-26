@@ -278,6 +278,36 @@ function getEbayAuthUrl(environment) {
     : 'https://auth.sandbox.ebay.com';
 }
 
+// Get Application Token (client_credentials) for Browse API
+// This doesn't require user login - uses app credentials only
+async function getApplicationToken() {
+  const { clientId, clientSecret, environment } = getEbayCredentials();
+  const apiBase = getEbayBaseUrl(environment);
+  
+  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  
+  const response = await fetch(`${apiBase}/identity/v1/oauth2/token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${credentials}`
+    },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      scope: 'https://api.ebay.com/oauth/api_scope'
+    }).toString()
+  });
+  
+  const data = await response.json();
+  
+  if (!response.ok) {
+    console.error('[eBay API] Application token error:', data);
+    throw new Error(data.error_description || 'Failed to get application token');
+  }
+  
+  return data.access_token;
+}
+
 async function getValidAccessToken(req, res) {
   let tokens = getTokensFromCookies(req);
   
@@ -1019,7 +1049,7 @@ async function handleStoreCategories(req, res) {
 }
 
 // =============================================================================
-// Market Handler - Price Check
+// Market Handler - Price Check (uses Application Token - no user login required)
 // =============================================================================
 
 async function handleMarketPriceCheck(req, res) {
@@ -1028,7 +1058,8 @@ async function handleMarketPriceCheck(req, res) {
   }
   
   try {
-    const { accessToken } = await getValidAccessToken(req, res);
+    // Use Application Token for Browse API (doesn't require user login)
+    const accessToken = await getApplicationToken();
     const { environment } = getEbayCredentials();
     const apiBase = getEbayBaseUrl(environment);
     
