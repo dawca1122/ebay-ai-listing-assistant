@@ -1,0 +1,7 @@
+{
+  "name": "eBay AI Listing Assistant",
+  "description": "An automated workflow tool for eBay sellers that uses Gemini AI to generate product titles, descriptions, and SKUs from EANs, helping streamline the listing and pricing process.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
