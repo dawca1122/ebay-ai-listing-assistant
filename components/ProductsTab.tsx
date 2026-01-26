@@ -76,6 +76,19 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
   
   // New Shop Category input
   const [newCategoryInput, setNewCategoryInput] = useState('');
+  
+  // Single product manual add form
+  const [showManualAdd, setShowManualAdd] = useState(false);
+  const [manualProduct, setManualProduct] = useState({
+    ean: '',
+    inputName: '',
+    shopCategory: '',
+    imageUrl: '',
+    sku: '',
+    quantity: '1',
+    priceGross: '',
+    condition: ProductCondition.NEW
+  });
 
   // Get unique shop categories for filter
   const shopCategories = useMemo(() => {
@@ -221,6 +234,56 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     } else {
       onError('Nie znaleziono prawidłowych wierszy do importu');
     }
+  };
+
+  // ============ SINGLE PRODUCT MANUAL ADD ============
+  const handleManualAdd = () => {
+    if (!manualProduct.ean && !manualProduct.inputName) {
+      onError('Podaj przynajmniej EAN lub nazwę produktu');
+      return;
+    }
+
+    const priceGross = parseFloat(manualProduct.priceGross.replace(',', '.')) || 0;
+    const priceNet = parseFloat((priceGross / (1 + EBAY_DE_CONSTANTS.VAT_RATE)).toFixed(2));
+
+    const newProduct: Product = {
+      id: crypto.randomUUID().split('-')[0],
+      ean: manualProduct.ean.trim(),
+      inputName: manualProduct.inputName.trim(),
+      shopCategory: manualProduct.shopCategory.trim(),
+      imageUrl: manualProduct.imageUrl.trim(),
+      quantity: parseInt(manualProduct.quantity) || 1,
+      condition: manualProduct.condition,
+      sku: manualProduct.sku.trim(),
+      title: '',
+      descriptionHtml: '',
+      keywords: '',
+      ebayCategoryId: '',
+      ebayCategoryName: '',
+      competitorPrices: [],
+      priceGross,
+      priceNet,
+      status: ProductStatus.DRAFT,
+      ebayOfferId: '',
+      ebayItemId: '',
+      lastError: '',
+      createdAt: Date.now()
+    };
+
+    setProducts(prev => [newProduct, ...prev]);
+    
+    // Reset form
+    setManualProduct({
+      ean: '',
+      inputName: '',
+      shopCategory: '',
+      imageUrl: '',
+      sku: '',
+      quantity: '1',
+      priceGross: '',
+      condition: ProductCondition.NEW
+    });
+    setShowManualAdd(false);
   };
 
   // ============ BULK TEXT IMPORT ============
@@ -973,6 +1036,18 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
               📁 Import Excel/CSV
             </button>
             
+            {/* Manual single product add button */}
+            <button 
+              onClick={() => setShowManualAdd(!showManualAdd)}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all h-10 flex items-center gap-2 ${
+                showManualAdd 
+                  ? 'bg-green-600 text-white hover:bg-green-700' 
+                  : 'bg-green-500 text-white hover:bg-green-600'
+              }`}
+            >
+              ✏️ {showManualAdd ? 'Zamknij formularz' : 'Dodaj ręcznie'}
+            </button>
+            
             {/* Quick text import */}
             <div className="flex gap-1">
               <input 
@@ -993,6 +1068,129 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           </div>
         </div>
       </div>
+
+      {/* MANUAL ADD FORM */}
+      {showManualAdd && (
+        <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl border border-green-200 p-4 shrink-0">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm font-bold text-green-700">✏️ Dodaj produkt ręcznie</span>
+            <span className="text-xs text-green-600">(wypełnij pola i kliknij "Dodaj")</span>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+            <div>
+              <label className="block text-[9px] font-black uppercase text-green-600 mb-1">EAN *</label>
+              <input 
+                type="text"
+                value={manualProduct.ean}
+                onChange={(e) => setManualProduct(prev => ({ ...prev, ean: e.target.value }))}
+                placeholder="4006508123456"
+                className="w-full px-3 py-2 bg-white border border-green-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+            </div>
+            
+            <div className="col-span-2">
+              <label className="block text-[9px] font-black uppercase text-green-600 mb-1">Nazwa produktu *</label>
+              <input 
+                type="text"
+                value={manualProduct.inputName}
+                onChange={(e) => setManualProduct(prev => ({ ...prev, inputName: e.target.value }))}
+                placeholder="Samsung Galaxy S24 Ultra 256GB Black"
+                className="w-full px-3 py-2 bg-white border border-green-300 rounded-lg text-xs focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-[9px] font-black uppercase text-green-600 mb-1">Kategoria sklepu</label>
+              <input 
+                type="text"
+                value={manualProduct.shopCategory}
+                onChange={(e) => setManualProduct(prev => ({ ...prev, shopCategory: e.target.value }))}
+                placeholder="Elektronika"
+                list="shopCategoriesList"
+                className="w-full px-3 py-2 bg-white border border-green-300 rounded-lg text-xs focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+              <datalist id="shopCategoriesList">
+                {shopCategories.map(cat => <option key={cat} value={cat} />)}
+              </datalist>
+            </div>
+            
+            <div>
+              <label className="block text-[9px] font-black uppercase text-green-600 mb-1">SKU (prefix)</label>
+              <input 
+                type="text"
+                value={manualProduct.sku}
+                onChange={(e) => setManualProduct(prev => ({ ...prev, sku: e.target.value }))}
+                placeholder="SAM-S24"
+                className="w-full px-3 py-2 bg-white border border-green-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-[9px] font-black uppercase text-green-600 mb-1">Ilość</label>
+              <input 
+                type="number"
+                min="1"
+                value={manualProduct.quantity}
+                onChange={(e) => setManualProduct(prev => ({ ...prev, quantity: e.target.value }))}
+                className="w-full px-3 py-2 bg-white border border-green-300 rounded-lg text-xs focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-[9px] font-black uppercase text-green-600 mb-1">Cena brutto €</label>
+              <input 
+                type="text"
+                value={manualProduct.priceGross}
+                onChange={(e) => setManualProduct(prev => ({ ...prev, priceGross: e.target.value }))}
+                placeholder="99.99"
+                className="w-full px-3 py-2 bg-white border border-green-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">
+            <div className="col-span-2">
+              <label className="block text-[9px] font-black uppercase text-green-600 mb-1">Link do zdjęcia (URL)</label>
+              <input 
+                type="text"
+                value={manualProduct.imageUrl}
+                onChange={(e) => setManualProduct(prev => ({ ...prev, imageUrl: e.target.value }))}
+                placeholder="https://example.com/image.jpg"
+                className="w-full px-3 py-2 bg-white border border-green-300 rounded-lg text-xs focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-[9px] font-black uppercase text-green-600 mb-1">Stan</label>
+              <select
+                value={manualProduct.condition}
+                onChange={(e) => setManualProduct(prev => ({ ...prev, condition: e.target.value as ProductCondition }))}
+                className="w-full px-3 py-2 bg-white border border-green-300 rounded-lg text-xs focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              >
+                <option value={ProductCondition.NEW}>Nowy</option>
+                <option value={ProductCondition.USED}>Używany</option>
+                <option value={ProductCondition.REFURBISHED}>Odnowiony</option>
+              </select>
+            </div>
+            
+            <div className="flex items-end gap-2">
+              <button 
+                onClick={handleManualAdd}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 transition-all h-10"
+              >
+                ✅ Dodaj produkt
+              </button>
+              <button 
+                onClick={() => setShowManualAdd(false)}
+                className="px-4 py-2 bg-slate-200 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-300 transition-all h-10"
+              >
+                ✖ Anuluj
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PIPELINE BUTTONS */}
       <div className="bg-white rounded-2xl border border-slate-200 p-3 shrink-0">
