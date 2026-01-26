@@ -546,10 +546,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     const product = products.find(p => p.id === productId);
     if (!product) return;
     
-    if (!ebayConnected) {
-      onError('Najpierw połącz się z eBay');
-      return;
-    }
+    // Application Token - nie wymaga logowania użytkownika
 
     try {
       updateProduct(productId, { status: ProductStatus.AI_PROCESSING });
@@ -1506,6 +1503,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                 <th className="px-3 py-3">Title 🤖</th>
                 <th className="px-3 py-3">Description 🤖</th>
                 <th className="px-3 py-3 w-20">Gross € 🤖</th>
+                <th className="px-3 py-3 w-24">Konkurencja</th>
                 <th className="px-3 py-3 w-20">Net €</th>
                 <th className="px-3 py-3">eBay Cat</th>
                 <th className="px-3 py-3 w-20">Status</th>
@@ -1515,7 +1513,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             <tbody className="divide-y divide-slate-100">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="px-4 py-12 text-center text-slate-400 italic">
+                  <td colSpan={16} className="px-4 py-12 text-center text-slate-400 italic">
                     Brak produktów. Zaimportuj dane powyżej.
                   </td>
                 </tr>
@@ -1708,11 +1706,29 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                             onClick={() => handleCheckProductPrice(p.id)}
                             className="px-1.5 py-1 bg-amber-100 text-amber-600 rounded text-xs hover:bg-amber-200"
                             title="🤖 Sprawdź cenę konkurencji (eBay API)"
-                            disabled={!ebayConnected}
                           >
                             🤖
                           </button>
                         </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        {(p.minTotalCompetition || p.medianTotalCompetition) ? (
+                          <div className="flex flex-col text-xs gap-0.5">
+                            <span className="text-green-600 font-bold" title="Minimum">
+                              ▼ {p.minTotalCompetition?.toFixed(2) || '---'}€
+                            </span>
+                            <span className="text-blue-600" title="Mediana">
+                              ◆ {p.medianTotalCompetition?.toFixed(2) || '---'}€
+                            </span>
+                            {p.competitorPrices && p.competitorPrices.length > 0 && (
+                              <span className="text-slate-400 text-[10px]">
+                                ({p.competitorPrices.length} ofert)
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-300 text-xs">---</span>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <input 
