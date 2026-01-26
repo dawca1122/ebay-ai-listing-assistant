@@ -68,9 +68,8 @@ const App: React.FC = () => {
     localStorage.setItem('ebay_ai_logs', JSON.stringify(logs));
   }, [logs]);
 
-  useEffect(() => {
-    localStorage.setItem('ebay_ai_settings', JSON.stringify(settings));
-  }, [settings]);
+  // Settings are saved manually via handleSaveSettings in SettingsTab
+  // No auto-save for settings - user must click "Zapisz"
 
   const handleError = (msg: string) => {
     setLastError(msg);

@@ -944,18 +944,38 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
                 </div>
               </div>
               
-              <button
-                onClick={() => {
-                  if (confirm('Przywrócić domyślne instrukcje?')) {
-                    setSettings(prev => ({ ...prev, aiInstructions: DEFAULT_AI_INSTRUCTIONS }));
-                  }
-                }}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-all"
-              >
-                🔄 Przywróć domyślne
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    if (confirm('Przywrócić domyślne instrukcje?')) {
+                      setSettings(prev => ({ ...prev, aiInstructions: DEFAULT_AI_INSTRUCTIONS }));
+                    }
+                  }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-all"
+                >
+                  🔄 Przywróć domyślne
+                </button>
+              </div>
             </div>
           )}
+          
+          {/* Save button for AI settings */}
+          <div className="pt-4 border-t border-slate-200">
+            <button 
+              onClick={handleSaveSettings}
+              disabled={saveStatus === 'saving'}
+              className={`px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+                saveStatus === 'saved' 
+                  ? 'bg-green-100 text-green-700 border border-green-200'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+              }`}
+            >
+              {saveStatus === 'saving' ? '⏳ Zapisywanie...' : saveStatus === 'saved' ? '✅ Zapisano!' : '💾 Zapisz ustawienia AI'}
+            </button>
+            <p className="text-[10px] text-slate-400 mt-2">
+              Zmiany modeli i instrukcji są zapisywane dopiero po kliknięciu przycisku.
+            </p>
+          </div>
         </div>
       </section>
 
