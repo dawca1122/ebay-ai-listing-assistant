@@ -6,7 +6,7 @@ import PricingTab from './components/PricingTab';
 import PublicationTab from './components/PublicationTab';
 import SettingsTab from './components/SettingsTab';
 import DebugTab from './components/DebugTab';
-import { Product, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS, DEFAULT_GEMINI_MODELS, DEFAULT_AI_INSTRUCTIONS } from './types';
+import { Product, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS, DEFAULT_GEMINI_MODELS, DEFAULT_AI_INSTRUCTIONS, DEFAULT_COMPANY_BANNER } from './types';
 
 const INITIAL_SETTINGS: AppSettings = {
   ebay: {
@@ -36,7 +36,8 @@ const INITIAL_SETTINGS: AppSettings = {
     undercutBy: 0.01,
     minGrossPrice: 1.00
   },
-  vatRate: EBAY_DE_CONSTANTS.VAT_RATE    // 19% VAT dla DE
+  vatRate: EBAY_DE_CONSTANTS.VAT_RATE,    // 19% VAT dla DE
+  companyBanner: DEFAULT_COMPANY_BANNER   // Firmowy baner HTML
 };
 
 const App: React.FC = () => {

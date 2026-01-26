@@ -218,6 +218,7 @@ export const generateProductWithResearch = async (
     generateModel?: GeminiModelId;
     titlePrompt?: string;
     descriptionPrompt?: string;
+    companyBanner?: string;  // Firmowy baner do dołączenia
   } = {}
 ): Promise<Partial<Product> & { researchReport?: string }> => {
   let researchData: string | undefined;
@@ -251,6 +252,12 @@ export const generateProductWithResearch = async (
     options.descriptionPrompt,
     researchData
   );
+  
+  // Krok 3: Dołącz firmowy baner do opisu
+  if (options.companyBanner && productDetails.descriptionHtml) {
+    productDetails.descriptionHtml = productDetails.descriptionHtml + '\n' + options.companyBanner;
+    console.log('🎨 Company banner added to description');
+  }
   
   return {
     ...productDetails,

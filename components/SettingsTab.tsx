@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AppSettings, EBAY_DE_CONSTANTS, GEMINI_MODELS, GeminiModelId, DEFAULT_GEMINI_MODELS, DEFAULT_AI_INSTRUCTIONS } from '../types';
+import { AppSettings, EBAY_DE_CONSTANTS, GEMINI_MODELS, GeminiModelId, DEFAULT_GEMINI_MODELS, DEFAULT_AI_INSTRUCTIONS, DEFAULT_COMPANY_BANNER } from '../types';
 import { 
   getOAuthStatus, 
   getOAuthStartUrl,
@@ -1071,6 +1071,84 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
             <code className="font-mono">finalPrice = min(konkurencja) - undercutBy</code><br/>
             Jeśli <code>finalPrice &lt; minGrossPrice</code>, to <code>finalPrice = minGrossPrice</code>
           </div>
+        </div>
+      </section>
+
+      {/* ============ F) Firmowy Baner ============ */}
+      <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+        <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-slate-900">
+          <span className="p-2 bg-pink-100 rounded-xl text-pink-600">🎨</span> 
+          F) Firmowy Baner
+        </h2>
+        
+        <div className="space-y-6">
+          <p className="text-sm text-slate-500">
+            Ten baner HTML będzie automatycznie dodawany na końcu każdego opisu produktu.
+          </p>
+          
+          <div>
+            <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+              Kod HTML Banera
+            </label>
+            <textarea
+              value={settings.companyBanner || ''}
+              onChange={(e) => setSettings(prev => ({ ...prev, companyBanner: e.target.value }))}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono h-48 resize-y"
+              placeholder={'<div style="...">Twój baner firmowy...</div>'}
+            />
+          </div>
+          
+          {/* Podgląd banera */}
+          {settings.companyBanner && (
+            <div>
+              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                Podgląd Banera
+              </label>
+              <div 
+                className="border border-slate-200 rounded-xl p-4 bg-white"
+                dangerouslySetInnerHTML={{ __html: settings.companyBanner }}
+              />
+            </div>
+          )}
+          
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                if (confirm('Przywrócić domyślny baner?')) {
+                  setSettings(prev => ({ ...prev, companyBanner: DEFAULT_COMPANY_BANNER }));
+                }
+              }}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-all"
+            >
+              🔄 Przywróć domyślny
+            </button>
+            <button
+              onClick={() => setSettings(prev => ({ ...prev, companyBanner: '' }))}
+              className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-all"
+            >
+              🗑️ Usuń baner
+            </button>
+          </div>
+          
+          <div className="bg-pink-50 border border-pink-200 rounded-xl p-4 text-xs text-pink-700">
+            <strong>💡 Wskazówki:</strong><br/>
+            • Używaj inline CSS (<code>style="..."</code>) zamiast klas - eBay nie obsługuje zewnętrznych stylów<br/>
+            • Unikaj JavaScript - zostanie usunięty przez eBay<br/>
+            • Baner pojawi się na końcu opisu każdego produktu<br/>
+            • Zapisz ustawienia żeby zmiany zostały zachowane
+          </div>
+          
+          <button 
+            onClick={handleSaveSettings}
+            disabled={saveStatus === 'saving'}
+            className={`px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+              saveStatus === 'saved' 
+                ? 'bg-green-100 text-green-700 border border-green-200'
+                : 'bg-pink-600 hover:bg-pink-700 text-white'
+            }`}
+          >
+            {saveStatus === 'saving' ? '⏳ Zapisywanie...' : saveStatus === 'saved' ? '✅ Zapisano!' : '💾 Zapisz baner'}
+          </button>
         </div>
       </section>
       

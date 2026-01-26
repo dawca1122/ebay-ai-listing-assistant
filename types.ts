@@ -97,7 +97,15 @@ export interface AppSettings {
   aiRules: AiRules;
   pricingRules: PricingRules;
   vatRate: number;             // 0.19 dla DE (stałe)
+  companyBanner: string;       // HTML baner firmowy dodawany do opisów
 }
+
+// Domyślny baner firmowy
+export const DEFAULT_COMPANY_BANNER = `
+<div style="margin-top: 30px; text-align: center;">
+  <img src="https://i.imgur.com/EN6EkLX.png" alt="Firmowy baner" style="max-width: 100%; width: 1280px; height: auto; border-radius: 8px;" />
+</div>
+`;
 
 // Domyślne ustawienia modeli
 export const DEFAULT_GEMINI_MODELS: GeminiModelSettings = {

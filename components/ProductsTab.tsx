@@ -375,7 +375,8 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             researchPrompt: settings.aiInstructions?.productResearchPrompt,
             generateModel: settings.geminiModels?.titleDescription,
             titlePrompt: settings.aiInstructions?.titlePrompt,
-            descriptionPrompt: settings.aiInstructions?.descriptionPrompt
+            descriptionPrompt: settings.aiInstructions?.descriptionPrompt,
+            companyBanner: settings.companyBanner  // Firmowy baner
           }
         );
 
