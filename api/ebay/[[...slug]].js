@@ -112,8 +112,9 @@ function getEbayCredentials() {
   return {
     clientId: process.env.EBAY_CLIENT_ID,
     clientSecret: process.env.EBAY_CLIENT_SECRET,
-    redirectUri: process.env.EBAY_REDIRECT_URI || `https://${process.env.VERCEL_URL}/api/ebay/callback`,
-    environment: process.env.EBAY_ENVIRONMENT || 'SANDBOX'
+    // eBay uses RuName (Redirect URL Name) instead of actual URL!
+    ruName: process.env.EBAY_RUNAME,
+    environment: process.env.EBAY_ENVIRONMENT || 'PRODUCTION'
   };
 }
 
@@ -202,10 +203,14 @@ async function handleOAuthPrepare(req, res) {
 // Handler: Get Auth URL
 async function handleGetAuthUrl(req, res) {
   const { state, scopes } = req.query;
-  const { clientId, redirectUri, environment } = getEbayCredentials();
+  const { clientId, ruName, environment } = getEbayCredentials();
   
   if (!clientId) {
-    return res.status(400).json({ error: 'eBay credentials not configured' });
+    return res.status(400).json({ error: 'eBay credentials not configured (missing EBAY_CLIENT_ID)' });
+  }
+  
+  if (!ruName) {
+    return res.status(400).json({ error: 'eBay RuName not configured (missing EBAY_RUNAME)' });
   }
   
   const authBase = getEbayAuthUrl(environment);
@@ -213,10 +218,11 @@ async function handleGetAuthUrl(req, res) {
   // Use provided scopes or defaults
   const scopeList = scopes || 'https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account https://api.ebay.com/oauth/api_scope/sell.fulfillment';
   
-  // Build auth URL manually to ensure proper encoding
-  const authUrl = `${authBase}/oauth2/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scopeList.split(' ').map(s => encodeURIComponent(s)).join('%20')}&state=${encodeURIComponent(state)}`;
+  // Build auth URL - eBay uses RuName (not URL!) as redirect_uri
+  const authUrl = `${authBase}/oauth2/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(ruName)}&response_type=code&scope=${scopeList.split(' ').map(s => encodeURIComponent(s)).join('%20')}&state=${encodeURIComponent(state)}`;
   
-  console.log('Generated auth URL:', authUrl);
+  console.log('Generated auth URL with RuName:', authUrl);
+  console.log('RuName:', ruName);
   
   return res.status(200).json({ authUrl });
 }
@@ -268,11 +274,14 @@ async function handleCallback(req, res) {
   
   // Exchange code for tokens
   try {
-    const { clientId, clientSecret, redirectUri, environment } = getEbayCredentials();
+    const { clientId, clientSecret, ruName, environment } = getEbayCredentials();
     const apiBase = getEbayBaseUrl(environment);
+    
+    console.log('Token exchange - using RuName:', ruName);
     
     const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
     
+    // IMPORTANT: redirect_uri must be the SAME RuName used in authorize!
     const tokenResponse = await fetch(`${apiBase}/identity/v1/oauth2/token`, {
       method: 'POST',
       headers: {
@@ -282,7 +291,7 @@ async function handleCallback(req, res) {
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code: code,
-        redirect_uri: redirectUri
+        redirect_uri: ruName
       }).toString()
     });
     
