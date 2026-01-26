@@ -275,6 +275,36 @@ export const getCategorySuggestions = async (query: string): Promise<{ suggestio
 };
 
 // ============================================
+// Store Categories - Get categories from eBay store
+// ============================================
+export interface StoreCategory {
+  name: string;
+  categoryId: string;
+}
+
+export const fetchStoreCategories = async (): Promise<{ categories: StoreCategory[]; source: string; hint?: string }> => {
+  let response = await fetchWithCredentials(`${API_BASE}/store/categories`, {
+    method: 'GET',
+  });
+  
+  if (response.status === 401) {
+    const accessToken = getAccessToken();
+    if (accessToken) {
+      response = await fetch(`${API_BASE}/store/categories`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+    }
+  }
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+  
+  return await response.json();
+};
+
+// ============================================
 // Market Price Check
 // ============================================
 export interface MarketPriceResult {

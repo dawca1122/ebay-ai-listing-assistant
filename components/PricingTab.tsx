@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { Product, ProductStatus, AppSettings } from '../types';
-import { fetchCompetitionData } from '../services/geminiService';
+import { Product, ProductStatus, AppSettings, EBAY_DE_CONSTANTS } from '../types';
+import { checkMarketPrices } from '../services/ebayService';
 
 interface PricingTabProps {
   products: Product[];
@@ -9,9 +9,10 @@ interface PricingTabProps {
   settings: AppSettings;
   setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
   onError: (msg: string) => void;
+  ebayConnected: boolean;
 }
 
-const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings, setSettings, onError }) => {
+const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings, setSettings, onError, ebayConnected }) => {
   const [isChecking, setIsChecking] = useState(false);
   const pricingProducts = products.filter(p => p.status !== ProductStatus.PUBLISHED);
 
@@ -26,36 +27,63 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
     }));
   };
 
-  const calculateSuggestedPrice = (minTotal: number, rules: typeof settings.pricingRules) => {
-    let price = minTotal - rules.undercutBy;
+  const calculateSuggestedPrice = (minTotal: number, medianTotal: number, rules: typeof settings.pricingRules) => {
+    const basePrice = rules.undercutMode === 'median' ? medianTotal : minTotal;
+    let price = basePrice - rules.undercutBy;
     if (price < rules.minGrossPrice) {
       price = rules.minGrossPrice;
     }
     return parseFloat(price.toFixed(2));
   };
 
+  // Sprawdzanie cen przez eBay Browse API
   const handleCheckCompetition = async (id: string) => {
     const product = products.find(p => p.id === id);
     if (!product) return;
 
+    if (!ebayConnected) {
+      onError('Najpierw połącz się z eBay w Ustawieniach');
+      return;
+    }
+
     try {
-      const data = await fetchCompetitionData(settings.geminiKey, product);
-      const newSuggested = calculateSuggestedPrice(data.minTotal, settings.pricingRules);
+      const searchQuery = product.ean || product.title || product.inputName;
+      const data = await checkMarketPrices(product.ean, searchQuery);
+      
+      const newSuggested = calculateSuggestedPrice(
+        data.statistics.min, 
+        data.statistics.median, 
+        settings.pricingRules
+      );
       
       updateProduct(id, {
-        minTotalCompetition: data.minTotal,
-        medianTotalCompetition: data.medianTotal,
-        priceGross: newSuggested,
-        priceNet: parseFloat((newSuggested / 1.19).toFixed(2)),
-        pricingRuleApplied: `Undercut -${settings.pricingRules.undercutBy}`,
-        pricingWarnings: data.warnings
+        competitorPrices: data.items.map(i => ({
+          price: i.price,
+          shipping: i.shipping,
+          total: i.total,
+          seller: i.seller
+        })),
+        minTotalCompetition: data.statistics.min,
+        medianTotalCompetition: data.statistics.median,
+        priceGross: newSuggested > 0 ? newSuggested : product.priceGross,
+        priceNet: newSuggested > 0 ? parseFloat((newSuggested / (1 + EBAY_DE_CONSTANTS.VAT_RATE)).toFixed(2)) : product.priceNet,
+        pricingRuleApplied: `${settings.pricingRules.undercutMode} -${settings.pricingRules.undercutBy}€`,
+        pricingWarnings: data.items.length === 0 ? ['Brak ofert konkurencji'] : undefined
       });
     } catch (err: any) {
       onError(`Błąd wyceny dla ${product.sku || product.id}: ${err.message}`);
+      updateProduct(id, {
+        pricingWarnings: [err.message]
+      });
     }
   };
 
   const handleCheckAll = async () => {
+    if (!ebayConnected) {
+      onError('Najpierw połącz się z eBay w Ustawieniach');
+      return;
+    }
+    
     setIsChecking(true);
     for (const p of pricingProducts) {
       await handleCheckCompetition(p.id);
@@ -65,17 +93,24 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
 
   return (
     <div className="grid grid-cols-12 gap-8 h-[calc(100vh-200px)]">
+      {/* eBay Connection Warning */}
+      {!ebayConnected && (
+        <div className="col-span-12 bg-red-50 border border-red-200 rounded-2xl p-4 text-center">
+          <span className="text-red-600 font-bold">🔒 Sprawdzanie cen wymaga połączenia z eBay. Przejdź do Ustawień.</span>
+        </div>
+      )}
+      
       {/* Left: Competition Table */}
       <div className="col-span-12 lg:col-span-9 flex flex-col h-full overflow-hidden">
         <div className="bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
             <div>
               <h2 className="text-xl font-black">Analiza Konkurencji</h2>
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Rynek: eBay.de</p>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Rynek: eBay.de (Browse API)</p>
             </div>
             <button
               onClick={handleCheckAll}
-              disabled={isChecking || pricingProducts.length === 0}
+              disabled={isChecking || pricingProducts.length === 0 || !ebayConnected}
               className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black text-xs uppercase tracking-widest px-6 py-3 rounded-2xl shadow-lg transition-all"
             >
               {isChecking ? 'Sprawdzanie...' : 'Sprawdź ceny konkurencji'}

@@ -28,9 +28,38 @@ const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, 
   
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState<string>('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<Product>>({});
 
   const updateProduct = (id: string, updates: Partial<Product>) => {
     setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+  };
+
+  const startEditing = (product: Product) => {
+    setEditingId(product.id);
+    setEditForm({
+      title: product.title,
+      descriptionHtml: product.descriptionHtml,
+      priceGross: product.priceGross,
+      quantity: product.quantity,
+      sku: product.sku,
+      ebayCategoryId: product.ebayCategoryId,
+    });
+  };
+
+  const saveEditing = () => {
+    if (editingId && editForm) {
+      const priceGross = editForm.priceGross || 0;
+      const priceNet = parseFloat((priceGross / (1 + EBAY_DE_CONSTANTS.VAT_RATE)).toFixed(2));
+      updateProduct(editingId, { ...editForm, priceNet });
+      setEditingId(null);
+      setEditForm({});
+    }
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditForm({});
   };
 
   const handlePublish = async (id: string) => {
@@ -227,58 +256,158 @@ const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
             {readyProducts.map(product => (
               <div key={product.id} className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden flex flex-col group hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-                <div className="p-8 flex-1">
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="flex flex-col gap-1">
-                      <span className="bg-blue-50 text-blue-600 text-[10px] font-black uppercase px-3 py-1 rounded-full tracking-widest w-fit">
-                        Status: Ready
+                {editingId === product.id ? (
+                  /* EDIT MODE */
+                  <div className="p-8 flex-1">
+                    <div className="flex justify-between items-start mb-4">
+                      <span className="bg-amber-50 text-amber-600 text-[10px] font-black uppercase px-3 py-1 rounded-full tracking-widest">
+                        ✏️ Edycja
                       </span>
-                      <span className="text-[10px] font-mono text-slate-400 mt-1">EAN: {product.ean}</span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={saveEditing}
+                          className="px-4 py-2 bg-green-600 text-white rounded-xl text-xs font-bold hover:bg-green-700"
+                        >
+                          ✅ Zapisz
+                        </button>
+                        <button
+                          onClick={cancelEditing}
+                          className="px-4 py-2 bg-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-300"
+                        >
+                          ✖ Anuluj
+                        </button>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <span className="text-slate-900 font-black text-2xl">{product.priceGross.toFixed(2)} €</span>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase">Cena Brutto</p>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Title</label>
+                        <input
+                          type="text"
+                          value={editForm.title || ''}
+                          onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Opis (HTML)</label>
+                        <textarea
+                          value={editForm.descriptionHtml || ''}
+                          onChange={(e) => setEditForm({ ...editForm, descriptionHtml: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono h-32 resize-none"
+                        />
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Cena Brutto €</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editForm.priceGross || 0}
+                            onChange={(e) => setEditForm({ ...editForm, priceGross: parseFloat(e.target.value) || 0 })}
+                            className="w-full px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm font-bold text-blue-700"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Ilość</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={editForm.quantity || 1}
+                            onChange={(e) => setEditForm({ ...editForm, quantity: parseInt(e.target.value) || 1 })}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">SKU</label>
+                          <input
+                            type="text"
+                            value={editForm.sku || ''}
+                            onChange={(e) => setEditForm({ ...editForm, sku: e.target.value })}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono"
+                          />
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">eBay Category ID</label>
+                        <input
+                          type="text"
+                          value={editForm.ebayCategoryId || ''}
+                          onChange={(e) => setEditForm({ ...editForm, ebayCategoryId: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono"
+                        />
+                      </div>
                     </div>
                   </div>
-                  
-                  <h3 className="font-black text-xl mb-4 leading-tight group-hover:text-blue-600 transition-colors">{product.title}</h3>
-                  
-                  <div className="grid grid-cols-2 gap-4 mb-6">
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                      <span className="block text-[9px] font-black uppercase text-slate-400 mb-1">SKU</span>
-                      <span className="text-xs font-bold text-slate-700 font-mono">{product.sku}</span>
-                    </div>
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                      <span className="block text-[9px] font-black uppercase text-slate-400 mb-1">Stock</span>
-                      <span className="text-xs font-bold text-slate-700">{product.quantity} szt.</span>
-                    </div>
-                  </div>
+                ) : (
+                  /* VIEW MODE */
+                  <>
+                    <div className="p-8 flex-1">
+                      <div className="flex justify-between items-start mb-6">
+                        <div className="flex flex-col gap-1">
+                          <span className="bg-blue-50 text-blue-600 text-[10px] font-black uppercase px-3 py-1 rounded-full tracking-widest w-fit">
+                            Status: Ready
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400 mt-1">EAN: {product.ean}</span>
+                        </div>
+                        <div className="flex items-start gap-3">
+                          <button
+                            onClick={() => startEditing(product)}
+                            className="px-3 py-2 bg-amber-100 text-amber-600 rounded-xl text-xs font-bold hover:bg-amber-200"
+                            title="Edytuj przed publikacją"
+                          >
+                            ✏️ Edytuj
+                          </button>
+                          <div className="text-right">
+                            <span className="text-slate-900 font-black text-2xl">{product.priceGross.toFixed(2)} €</span>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">Cena Brutto</p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <h3 className="font-black text-xl mb-4 leading-tight group-hover:text-blue-600 transition-colors">{product.title}</h3>
+                      
+                      <div className="grid grid-cols-2 gap-4 mb-6">
+                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                          <span className="block text-[9px] font-black uppercase text-slate-400 mb-1">SKU</span>
+                          <span className="text-xs font-bold text-slate-700 font-mono">{product.sku}</span>
+                        </div>
+                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                          <span className="block text-[9px] font-black uppercase text-slate-400 mb-1">Stock</span>
+                          <span className="text-xs font-bold text-slate-700">{product.quantity} szt.</span>
+                        </div>
+                      </div>
 
-                  <div className="bg-slate-50/50 p-4 rounded-2xl text-[11px] text-slate-500 leading-relaxed italic border border-slate-100 h-24 overflow-y-auto scrollbar-hide">
-                    {product.descriptionHtml.replace(/<[^>]*>/g, '').slice(0, 200)}...
-                  </div>
-                </div>
+                      <div className="bg-slate-50/50 p-4 rounded-2xl text-[11px] text-slate-500 leading-relaxed italic border border-slate-100 h-24 overflow-y-auto scrollbar-hide">
+                        {product.descriptionHtml.replace(/<[^>]*>/g, '').slice(0, 200)}...
+                      </div>
+                    </div>
 
-                <div className="bg-slate-50 p-6 border-t border-slate-100">
-                  <button 
-                    disabled={!!publishingId}
-                    onClick={() => handlePublish(product.id)}
-                    className={`w-full font-black py-4 rounded-2xl text-xs uppercase tracking-[0.1em] transition-all flex items-center justify-center gap-3 shadow-md active:scale-95 ${
-                      publishingId === product.id 
-                        ? 'bg-slate-200 text-slate-500 cursor-wait' 
-                        : 'bg-slate-900 hover:bg-black text-white'
-                    }`}
-                  >
-                    {publishingId === product.id ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></span>
-                        {currentStep}
-                      </>
-                    ) : (
-                      <>🚀 Wystaw na eBay.de</>
-                    )}
-                  </button>
-                </div>
+                    <div className="bg-slate-50 p-6 border-t border-slate-100">
+                      <button 
+                        disabled={!!publishingId}
+                        onClick={() => handlePublish(product.id)}
+                        className={`w-full font-black py-4 rounded-2xl text-xs uppercase tracking-[0.1em] transition-all flex items-center justify-center gap-3 shadow-md active:scale-95 ${
+                          publishingId === product.id 
+                            ? 'bg-slate-200 text-slate-500 cursor-wait' 
+                            : 'bg-slate-900 hover:bg-black text-white'
+                        }`}
+                      >
+                        {publishingId === product.id ? (
+                          <>
+                            <span className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></span>
+                            {currentStep}
+                          </>
+                        ) : (
+                          <>🚀 Wystaw na eBay.de</>
+                        )}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>

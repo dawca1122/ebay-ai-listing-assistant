@@ -928,17 +928,21 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
                   />
                 </div>
                 
-                {/* Price Search Prompt */}
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
-                    Instrukcja: Szukanie Cen
+                {/* Price Search Prompt - Info that it uses eBay API now */}
+                <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl border border-amber-200">
+                  <label className="block text-[10px] font-black uppercase text-amber-600 mb-2 ml-1">
+                    💰 Sprawdzanie Cen (eBay Browse API)
                   </label>
-                  <textarea
-                    value={settings.aiInstructions?.priceSearchPrompt || ''}
-                    onChange={(e) => updateSection('aiInstructions', { priceSearchPrompt: e.target.value })}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono h-24 resize-none"
-                    placeholder="Instrukcje dla szukania cen konkurencji..."
-                  />
+                  <div className="text-xs text-amber-700 bg-white p-3 rounded-lg border border-amber-100">
+                    <p className="font-bold mb-2">ℹ️ Ceny są teraz sprawdzane przez eBay Browse API</p>
+                    <p>Sprawdzanie cen konkurencji działa automatycznie przez oficjalne API eBay.</p>
+                    <p className="mt-2">Konfiguracja w sekcji E) VAT i Pricing Rules:</p>
+                    <ul className="list-disc list-inside mt-1 text-[11px]">
+                      <li>Undercut By - kwota odejmowana od min konkurencji</li>
+                      <li>Min Gross Price - cena minimalna</li>
+                      <li>Tryb: najniższa cena lub mediana</li>
+                    </ul>
+                  </div>
                 </div>
                 
                 {/* Category Prompt */}

@@ -153,6 +153,14 @@ export default async function handler(req, res) {
     }
     
     // ==========================================================================
+    // STORE ROUTES
+    // ==========================================================================
+    
+    if (path === 'store/categories') {
+      return handleStoreCategories(req, res);
+    }
+    
+    // ==========================================================================
     // MARKET ROUTES
     // ==========================================================================
     
@@ -235,6 +243,8 @@ function getAvailableRoutes() {
     'POST /api/ebay/account/locations - Create location',
     // Taxonomy
     'POST /api/ebay/category/suggest - Suggest eBay categories',
+    // Store
+    'GET  /api/ebay/store/categories - Get store categories',
     // Market
     'POST /api/ebay/market/price-check - Check competition prices',
     // Listing
@@ -900,6 +910,110 @@ async function handleCategorySuggest(req, res) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
     console.error('[eBay API] Category suggest error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// =============================================================================
+// Store Handler - Get Store Categories
+// =============================================================================
+
+async function handleStoreCategories(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  try {
+    const { accessToken } = await getValidAccessToken(req, res);
+    const { environment } = getEbayCredentials();
+    const apiBase = getEbayBaseUrl(environment);
+    
+    // Get store configuration using Sell Account API
+    const response = await fetch(`${apiBase}/sell/account/v1/subscription`, {
+      headers: { 
+        'Authorization': `Bearer ${accessToken}`,
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+      }
+    });
+    
+    // If subscription API fails, try to get categories from existing listings
+    if (!response.ok) {
+      // Fallback: Get categories from seller's active inventory
+      const inventoryResponse = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=100`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      const inventoryData = await inventoryResponse.json();
+      
+      // Extract unique store categories from inventory items
+      const categories = new Set();
+      (inventoryData.inventoryItems || []).forEach(item => {
+        if (item.product?.aspects) {
+          // Try to find category-like aspects
+          Object.keys(item.product.aspects).forEach(key => {
+            if (key.toLowerCase().includes('category') || key.toLowerCase().includes('kategorie')) {
+              const values = item.product.aspects[key];
+              if (Array.isArray(values)) {
+                values.forEach(v => categories.add(v));
+              }
+            }
+          });
+        }
+      });
+      
+      // Also try to fetch from fulfillment policies which may indicate store structure
+      const policiesResponse = await fetch(`${apiBase}/sell/account/v1/fulfillment_policy?marketplace_id=EBAY_DE`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      // Return what we found
+      return res.status(200).json({
+        categories: Array.from(categories).map(name => ({
+          name,
+          categoryId: name.toLowerCase().replace(/[^a-z0-9]/g, '-')
+        })),
+        source: 'inventory_fallback',
+        hint: 'Kategorie wyciągnięte z istniejących produktów. Dla pełnej listy kategorii sklepu eBay wymaga subskrypcji Store.'
+      });
+    }
+    
+    const subscriptionData = await response.json();
+    
+    // If user has a store, fetch store categories
+    if (subscriptionData.subscriptions?.some(s => s.programType === 'STORE')) {
+      // Try to get custom categories from item specifics or category aspects
+      const storeResponse = await fetch(`${apiBase}/sell/account/v1/custom_policy`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      let customCategories = [];
+      if (storeResponse.ok) {
+        const storeData = await storeResponse.json();
+        customCategories = (storeData.customPolicies || []).map(p => ({
+          name: p.label,
+          categoryId: p.customPolicyId
+        }));
+      }
+      
+      return res.status(200).json({
+        categories: customCategories,
+        subscriptions: subscriptionData.subscriptions,
+        source: 'store_api'
+      });
+    }
+    
+    return res.status(200).json({
+      categories: [],
+      subscriptions: subscriptionData.subscriptions || [],
+      hint: 'Brak sklepu eBay lub kategorii niestandardowych. Możesz tworzyć własne kategorie w polu Shop Category.',
+      source: 'no_store'
+    });
+    
+  } catch (error) {
+    if (error.message === 'NOT_AUTHENTICATED') {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    console.error('[eBay API] Store categories error:', error);
     return res.status(500).json({ error: error.message });
   }
 }

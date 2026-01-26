@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Product, ProductStatus, ProductCondition, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS} from '../types';
-import { generateProductWithResearch, suggestCategory } from '../services/geminiService';
+import { generateProductWithResearch, suggestCategory, researchProduct, generateProductDetails } from '../services/geminiService';
+import { fetchStoreCategories, checkMarketPrices } from '../services/ebayService';
 import * as XLSX from 'xlsx';
 
 interface ProductsTabProps {
@@ -77,6 +78,13 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
   // New Shop Category input
   const [newCategoryInput, setNewCategoryInput] = useState('');
   
+  // eBay Store Categories
+  const [ebayStoreCategories, setEbayStoreCategories] = useState<string[]>([]);
+  const [isLoadingStoreCategories, setIsLoadingStoreCategories] = useState(false);
+  
+  // Research data storage (per product)
+  const [productResearchData, setProductResearchData] = useState<Record<string, string>>({});
+  
   // Single product manual add form
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualProduct, setManualProduct] = useState({
@@ -90,11 +98,31 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     condition: ProductCondition.NEW
   });
 
-  // Get unique shop categories for filter
+  // Load eBay Store Categories on mount
+  useEffect(() => {
+    if (ebayConnected) {
+      loadStoreCategories();
+    }
+  }, [ebayConnected]);
+
+  const loadStoreCategories = async () => {
+    setIsLoadingStoreCategories(true);
+    try {
+      const result = await fetchStoreCategories();
+      const cats = result.categories.map(c => c.name).filter(Boolean);
+      setEbayStoreCategories(cats);
+    } catch (err) {
+      console.warn('Failed to load store categories:', err);
+    }
+    setIsLoadingStoreCategories(false);
+  };
+
+  // Get unique shop categories for filter (combine local + eBay)
   const shopCategories = useMemo(() => {
-    const cats = new Set(products.map(p => p.shopCategory).filter(Boolean));
-    return Array.from(cats).sort();
-  }, [products]);
+    const localCats = new Set(products.map(p => p.shopCategory).filter(Boolean));
+    const allCats = new Set([...localCats, ...ebayStoreCategories]);
+    return Array.from(allCats).sort();
+  }, [products, ebayStoreCategories]);
 
   // Filtered products
   const filteredProducts = useMemo(() => {
@@ -353,6 +381,211 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     updateProduct(productId, { sku: newSku });
   };
 
+  // ============ SINGLE PRODUCT AI AGENTS ============
+  
+  // Agent: Research produktu (szuka informacji)
+  const handleResearchProduct = async (productId: string) => {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    if (!settings.geminiKey) {
+      onError('Brak klucza API Gemini');
+      return;
+    }
+
+    try {
+      updateProduct(productId, { status: ProductStatus.AI_PROCESSING });
+      
+      const researchResult = await researchProduct(
+        settings.geminiKey,
+        product.inputName,
+        product.ean,
+        settings.geminiModels?.productResearch,
+        settings.aiInstructions?.productResearchPrompt
+      );
+      
+      // Store research data for this product
+      setProductResearchData(prev => ({ ...prev, [productId]: researchResult }));
+      
+      updateProduct(productId, { 
+        status: ProductStatus.AI_DONE,
+        lastError: ''
+      });
+
+      addLog({
+        productId: product.id,
+        sku: product.sku,
+        ean: product.ean,
+        stage: LogStage.AI,
+        action: 'Research Product',
+        success: true,
+        responseBody: { researchLength: researchResult.length }
+      });
+      
+    } catch (err: any) {
+      updateProduct(productId, { status: ProductStatus.ERROR_AI, lastError: err.message });
+      onError(`Research error: ${err.message}`);
+    }
+  };
+
+  // Agent: Generuj Title dla pojedynczego produktu
+  const handleGenerateTitle = async (productId: string) => {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    if (!settings.geminiKey) {
+      onError('Brak klucza API Gemini');
+      return;
+    }
+
+    try {
+      updateProduct(productId, { status: ProductStatus.AI_PROCESSING });
+      
+      // Get research data if available
+      const researchData = productResearchData[productId] || '';
+      
+      const result = await generateProductDetails(
+        settings.geminiKey,
+        product.inputName,
+        product.ean,
+        `${settings.aiRules.titleRules}\nShop Category: ${product.shopCategory}`,
+        settings.geminiModels?.titleDescription,
+        settings.aiInstructions?.titlePrompt,
+        undefined, // description prompt not needed
+        researchData
+      );
+      
+      updateProduct(productId, { 
+        title: result.title || '',
+        sku: product.sku || result.sku || '',
+        status: ProductStatus.AI_DONE,
+        lastError: ''
+      });
+
+      addLog({
+        productId: product.id,
+        sku: product.sku,
+        ean: product.ean,
+        stage: LogStage.AI,
+        action: 'Generate Title',
+        success: true,
+        responseBody: { title: result.title }
+      });
+      
+    } catch (err: any) {
+      updateProduct(productId, { status: ProductStatus.ERROR_AI, lastError: err.message });
+      onError(`Title error: ${err.message}`);
+    }
+  };
+
+  // Agent: Generuj Description dla pojedynczego produktu
+  const handleGenerateDescription = async (productId: string) => {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    if (!settings.geminiKey) {
+      onError('Brak klucza API Gemini');
+      return;
+    }
+
+    try {
+      updateProduct(productId, { status: ProductStatus.AI_PROCESSING });
+      
+      // Get research data if available
+      const researchData = productResearchData[productId] || '';
+      
+      const result = await generateProductDetails(
+        settings.geminiKey,
+        product.inputName,
+        product.ean,
+        `${settings.aiRules.descriptionRules}\nShop Category: ${product.shopCategory}`,
+        settings.geminiModels?.titleDescription,
+        undefined, // title prompt not needed
+        settings.aiInstructions?.descriptionPrompt,
+        researchData
+      );
+      
+      // Add company banner if exists
+      let finalDescription = result.descriptionHtml || '';
+      if (settings.companyBanner) {
+        finalDescription = settings.companyBanner + '\n' + finalDescription;
+      }
+      
+      updateProduct(productId, { 
+        descriptionHtml: finalDescription,
+        keywords: result.keywords || '',
+        status: ProductStatus.AI_DONE,
+        lastError: ''
+      });
+
+      addLog({
+        productId: product.id,
+        sku: product.sku,
+        ean: product.ean,
+        stage: LogStage.AI,
+        action: 'Generate Description',
+        success: true,
+        responseBody: { descriptionLength: finalDescription.length }
+      });
+      
+    } catch (err: any) {
+      updateProduct(productId, { status: ProductStatus.ERROR_AI, lastError: err.message });
+      onError(`Description error: ${err.message}`);
+    }
+  };
+
+  // Agent: Sprawdź cenę dla pojedynczego produktu (przez eBay API)
+  const handleCheckProductPrice = async (productId: string) => {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    if (!ebayConnected) {
+      onError('Najpierw połącz się z eBay');
+      return;
+    }
+
+    try {
+      updateProduct(productId, { status: ProductStatus.AI_PROCESSING });
+      
+      const searchQuery = product.ean || product.title || product.inputName;
+      const result = await checkMarketPrices(product.ean, searchQuery);
+      
+      const { undercutMode, undercutBy, minGrossPrice } = settings.pricingRules;
+      let recommendedPrice = undercutMode === 'median' ? result.statistics.median : result.statistics.min;
+      recommendedPrice = Math.max(recommendedPrice - undercutBy, minGrossPrice);
+      
+      updateProduct(productId, { 
+        competitorPrices: result.items.map(i => ({
+          price: i.price,
+          shipping: i.shipping,
+          total: i.total,
+          seller: i.seller
+        })),
+        minTotalCompetition: result.statistics.min,
+        medianTotalCompetition: result.statistics.median,
+        priceGross: recommendedPrice > 0 ? parseFloat(recommendedPrice.toFixed(2)) : product.priceGross,
+        priceNet: recommendedPrice > 0 ? parseFloat((recommendedPrice / (1 + EBAY_DE_CONSTANTS.VAT_RATE)).toFixed(2)) : product.priceNet,
+        pricingRuleApplied: `${undercutMode} - ${undercutBy}€`,
+        status: ProductStatus.PRICE_CHECK_DONE,
+        lastError: ''
+      });
+
+      addLog({
+        productId: product.id,
+        sku: product.sku,
+        ean: product.ean,
+        stage: LogStage.PRICE_CHECK,
+        action: 'Check Price (eBay API)',
+        success: true,
+        responseBody: { min: result.statistics.min, median: result.statistics.median, count: result.items.length }
+      });
+      
+    } catch (err: any) {
+      updateProduct(productId, { status: ProductStatus.ERROR_PRICECHECK, lastError: err.message });
+      onError(`Price check error: ${err.message}`);
+    }
+  };
+
   const handleFindCategory = async (productId: string) => {
     const product = products.find(p => p.id === productId);
     if (!product) return;
@@ -366,7 +599,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     try {
       updateProduct(productId, { status: ProductStatus.AI_PROCESSING });
       
-      const result = await suggestCategory(searchTerm, settings.geminiApiKey);
+      const result = await suggestCategory(searchTerm, settings.geminiKey);
       if (result && result.length > 0) {
         const top = result[0];
         updateProduct(productId, { 
@@ -405,7 +638,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
 
   const getSelectedProducts = () => products.filter(p => selectedIds.has(p.id));
 
-  // ============ PIPELINE STEP 1: AI Generate ============
+  // ============ PIPELINE STEP 1: Research Products (zbiera informacje) ============
   const handleAiGenerate = async () => {
     const selected = getSelectedProducts();
     if (selected.length === 0) {
@@ -414,39 +647,50 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     }
 
     setIsProcessing(true);
-    setProcessingStep('AI: Generowanie SKU + Title + Description...');
+    setProcessingStep('🔬 Research produktów...');
 
     for (const product of selected) {
       try {
         updateProduct(product.id, { status: ProductStatus.AI_PROCESSING });
         
-        // Sprawdź czy używamy research
-        const useResearch = settings.geminiModels?.productResearch !== undefined;
+        setProcessingStep(`🔬 Research: ${product.inputName}...`);
         
-        if (useResearch) {
-          setProcessingStep(`🔬 Research: ${product.inputName}...`);
-        }
+        // Krok 1: Research produktu
+        const researchResult = await researchProduct(
+          settings.geminiKey,
+          product.inputName,
+          product.ean,
+          settings.geminiModels?.productResearch,
+          settings.aiInstructions?.productResearchPrompt
+        );
         
-        const result = await generateProductWithResearch(
+        // Store research data for this product
+        setProductResearchData(prev => ({ ...prev, [product.id]: researchResult }));
+        
+        setProcessingStep(`📝 Generowanie Title + Description: ${product.inputName}...`);
+        
+        // Krok 2: Generuj Title + Description używając research data
+        const result = await generateProductDetails(
           settings.geminiKey,
           product.inputName,
           product.ean,
           `${settings.aiRules.systemPrompt}\n\nSKU Rules: ${settings.aiRules.skuRules}\nTitle Rules: ${settings.aiRules.titleRules}\nDescription Rules: ${settings.aiRules.descriptionRules}\nForbidden: ${settings.aiRules.forbiddenWords}\nShop Category: ${product.shopCategory}\nCondition: ${product.condition}`,
-          {
-            useResearch: useResearch,
-            researchModel: settings.geminiModels?.productResearch,
-            researchPrompt: settings.aiInstructions?.productResearchPrompt,
-            generateModel: settings.geminiModels?.titleDescription,
-            titlePrompt: settings.aiInstructions?.titlePrompt,
-            descriptionPrompt: settings.aiInstructions?.descriptionPrompt,
-            companyBanner: settings.companyBanner  // Firmowy baner
-          }
+          settings.geminiModels?.titleDescription,
+          settings.aiInstructions?.titlePrompt,
+          settings.aiInstructions?.descriptionPrompt,
+          researchResult
         );
+
+        // Add company banner if exists
+        let finalDescription = result.descriptionHtml || '';
+        if (settings.companyBanner) {
+          finalDescription = settings.companyBanner + '\n' + finalDescription;
+        }
 
         updateProduct(product.id, {
           sku: product.sku ? `${product.sku}-${result.sku}` : result.sku, // Preserve user prefix
           title: result.title,
-          descriptionHtml: result.descriptionHtml,
+          descriptionHtml: finalDescription,
           keywords: result.keywords || '',
           status: ProductStatus.AI_DONE,
           lastError: ''
@@ -457,12 +701,12 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           sku: result.sku,
           ean: product.ean,
           stage: LogStage.AI,
-          action: useResearch ? 'AI Generate + Research' : 'AI Generate',
+          action: 'AI Research + Generate',
           success: true,
           responseBody: { 
             sku: result.sku, 
             title: result.title,
-            hasResearch: !!result.researchReport
+            hasResearch: !!researchResult
           }
         });
       } catch (err: any) {
@@ -476,7 +720,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           sku: product.sku,
           ean: product.ean,
           stage: LogStage.AI,
-          action: 'AI Generate',
+          action: 'AI Research + Generate',
           success: false,
           ebayErrorMessage: err.message || 'Błąd AI',
           hint: 'Sprawdź klucz API Gemini i połączenie internetowe.'
@@ -1204,7 +1448,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             disabled={isProcessing || selectedIds.size === 0}
             className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-bold hover:bg-blue-100 disabled:opacity-50 transition-all"
           >
-            🤖 1. AI Generate
+            🔬 1. Research + AI
           </button>
           
           <button 
@@ -1286,8 +1530,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                 <th className="px-3 py-3 w-16">Qty</th>
                 <th className="px-3 py-3 w-20">Condition</th>
                 <th className="px-3 py-3">SKU</th>
-                <th className="px-3 py-3">Title</th>
-                <th className="px-3 py-3 w-20">Gross €</th>
+                <th className="px-3 py-3">Title 🤖</th>
+                <th className="px-3 py-3">Description 🤖</th>
+                <th className="px-3 py-3 w-20">Gross € 🤖</th>
                 <th className="px-3 py-3 w-20">Net €</th>
                 <th className="px-3 py-3">eBay Cat</th>
                 <th className="px-3 py-3 w-20">Status</th>
@@ -1297,7 +1542,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             <tbody className="divide-y divide-slate-100">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="px-4 py-12 text-center text-slate-400 italic">
+                  <td colSpan={15} className="px-4 py-12 text-center text-slate-400 italic">
                     Brak produktów. Zaimportuj dane powyżej.
                   </td>
                 </tr>
@@ -1415,26 +1660,70 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                         </div>
                       </td>
                       <td className="px-3 py-2">
-                        <input 
-                          type="text"
-                          value={p.title}
-                          onChange={(e) => updateProduct(p.id, { title: e.target.value })}
-                          className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs"
-                          placeholder="---"
-                        />
+                        <div className="flex gap-1">
+                          <input 
+                            type="text"
+                            value={p.title}
+                            onChange={(e) => updateProduct(p.id, { title: e.target.value })}
+                            className="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs min-w-[100px]"
+                            placeholder="---"
+                          />
+                          <button
+                            onClick={() => handleGenerateTitle(p.id)}
+                            className="px-1.5 py-1 bg-indigo-100 text-indigo-600 rounded text-xs hover:bg-indigo-200"
+                            title="🤖 Generuj Title (używa Research)"
+                          >
+                            🤖
+                          </button>
+                        </div>
                       </td>
                       <td className="px-3 py-2">
-                        <input 
-                          type="number"
-                          step="0.01"
-                          value={p.priceGross}
-                          onChange={(e) => {
-                            const gross = parseFloat(e.target.value) || 0;
-                            const net = parseFloat((gross / (1 + EBAY_DE_CONSTANTS.VAT_RATE)).toFixed(2));
-                            updateProduct(p.id, { priceGross: gross, priceNet: net });
-                          }}
-                          className="w-full px-2 py-1 bg-blue-50 border border-blue-200 rounded text-xs text-center font-bold text-blue-700"
-                        />
+                        <div className="flex gap-1">
+                          <input 
+                            type="text"
+                            value={p.descriptionHtml ? `${p.descriptionHtml.replace(/<[^>]*>/g, '').slice(0, 30)}...` : ''}
+                            readOnly
+                            onClick={() => {
+                              const newDesc = prompt('Edytuj opis HTML:', p.descriptionHtml || '');
+                              if (newDesc !== null) {
+                                updateProduct(p.id, { descriptionHtml: newDesc });
+                              }
+                            }}
+                            className="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs min-w-[80px] cursor-pointer hover:bg-slate-100"
+                            placeholder="---"
+                            title={p.descriptionHtml || 'Kliknij aby edytować'}
+                          />
+                          <button
+                            onClick={() => handleGenerateDescription(p.id)}
+                            className="px-1.5 py-1 bg-purple-100 text-purple-600 rounded text-xs hover:bg-purple-200"
+                            title="🤖 Generuj Opis (używa Research)"
+                          >
+                            🤖
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex gap-1">
+                          <input 
+                            type="number"
+                            step="0.01"
+                            value={p.priceGross}
+                            onChange={(e) => {
+                              const gross = parseFloat(e.target.value) || 0;
+                              const net = parseFloat((gross / (1 + EBAY_DE_CONSTANTS.VAT_RATE)).toFixed(2));
+                              updateProduct(p.id, { priceGross: gross, priceNet: net });
+                            }}
+                            className="flex-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded text-xs text-center font-bold text-blue-700 min-w-[50px]"
+                          />
+                          <button
+                            onClick={() => handleCheckProductPrice(p.id)}
+                            className="px-1.5 py-1 bg-amber-100 text-amber-600 rounded text-xs hover:bg-amber-200"
+                            title="🤖 Sprawdź cenę konkurencji (eBay API)"
+                            disabled={!ebayConnected}
+                          >
+                            🤖
+                          </button>
+                        </div>
                       </td>
                       <td className="px-3 py-2">
                         <input 

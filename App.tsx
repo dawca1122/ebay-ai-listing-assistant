@@ -194,6 +194,7 @@ const App: React.FC = () => {
                   settings={settings}
                   setSettings={setSettings}
                   onError={handleError}
+                  ebayConnected={ebayStatus}
                 />;
       case 'publication':
         return <PublicationTab 
