@@ -65,11 +65,18 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('ebay_ai_settings');
     if (saved) {
       const parsed = JSON.parse(saved);
+      
+      // Migracja: zamień nieistniejący model deep-research-pro-preview na gemini-2.5-pro
+      const migratedGeminiModels = { ...INITIAL_SETTINGS.geminiModels, ...parsed.geminiModels };
+      if (migratedGeminiModels.productResearch === 'deep-research-pro-preview') {
+        migratedGeminiModels.productResearch = 'gemini-2.5-pro';
+      }
+      
       // Merge z INITIAL_SETTINGS żeby nowe pola (np. companyBanner) były dostępne
       return {
         ...INITIAL_SETTINGS,
         ...parsed,
-        geminiModels: { ...INITIAL_SETTINGS.geminiModels, ...parsed.geminiModels },
+        geminiModels: migratedGeminiModels,
         aiInstructions: { ...INITIAL_SETTINGS.aiInstructions, ...parsed.aiInstructions },
         // Jeśli companyBanner nie istnieje, użyj domyślnego
         companyBanner: parsed.companyBanner !== undefined ? parsed.companyBanner : INITIAL_SETTINGS.companyBanner
