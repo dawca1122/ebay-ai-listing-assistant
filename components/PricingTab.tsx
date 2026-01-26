@@ -36,15 +36,12 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
     return parseFloat(price.toFixed(2));
   };
 
-  // Sprawdzanie cen przez eBay Browse API
+  // Sprawdzanie cen przez eBay Browse API (Application Token - nie wymaga logowania)
   const handleCheckCompetition = async (id: string) => {
     const product = products.find(p => p.id === id);
     if (!product) return;
 
-    if (!ebayConnected) {
-      onError('Najpierw połącz się z eBay w Ustawieniach');
-      return;
-    }
+    // Application Token - nie wymaga logowania użytkownika
 
     try {
       const searchQuery = product.ean || product.title || product.inputName;
@@ -79,10 +76,7 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
   };
 
   const handleCheckAll = async () => {
-    if (!ebayConnected) {
-      onError('Najpierw połącz się z eBay w Ustawieniach');
-      return;
-    }
+    // Application Token - nie wymaga logowania użytkownika
     
     setIsChecking(true);
     for (const p of pricingProducts) {
@@ -93,12 +87,7 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
 
   return (
     <div className="grid grid-cols-12 gap-8 h-[calc(100vh-200px)]">
-      {/* eBay Connection Warning */}
-      {!ebayConnected && (
-        <div className="col-span-12 bg-red-50 border border-red-200 rounded-2xl p-4 text-center">
-          <span className="text-red-600 font-bold">🔒 Sprawdzanie cen wymaga połączenia z eBay. Przejdź do Ustawień.</span>
-        </div>
-      )}
+      {/* Info about Application Token */}
       
       {/* Left: Competition Table */}
       <div className="col-span-12 lg:col-span-9 flex flex-col h-full overflow-hidden">

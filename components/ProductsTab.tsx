@@ -812,10 +812,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
       return;
     }
 
-    if (!ebayConnected) {
-      onError('Najpierw połącz się z eBay w Ustawieniach');
-      return;
-    }
+    // Application Token - nie wymaga logowania użytkownika
 
     setIsProcessing(true);
     setProcessingStep('Sprawdzanie cen konkurencji na eBay.de...');
@@ -1437,7 +1434,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           
           <button 
             onClick={handleCheckPrices}
-            disabled={isProcessing || selectedIds.size === 0 || !ebayConnected}
+            disabled={isProcessing || selectedIds.size === 0}
             className="px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-[10px] font-bold hover:bg-amber-100 disabled:opacity-50 transition-all"
           >
             💰 3. Ceny
