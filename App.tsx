@@ -39,6 +39,7 @@ const INITIAL_SETTINGS: AppSettings = {
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('products');
+  const [ebayConnected, setEbayConnected] = useState(false);
   
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('ebay_ai_products');
@@ -120,20 +121,43 @@ const App: React.FC = () => {
     setActiveTab('products');
   }, []);
 
-  // Check eBay connection from localStorage tokens
-  const getEbayConnectionStatus = (): boolean => {
-    const stored = localStorage.getItem('ebay_oauth_tokens');
-    if (!stored) return false;
+  // Check eBay connection status via API (tokens in HTTP-only cookie)
+  const checkEbayConnection = useCallback(async () => {
     try {
-      const tokens = JSON.parse(stored);
-      // Token valid if expires more than 5 min from now
-      return tokens.expiresAt > Date.now() + (5 * 60 * 1000);
+      const response = await fetch('/api/ebay/oauth/status', {
+        credentials: 'include'
+      });
+      const data = await response.json();
+      setEbayConnected(data.connected === true);
     } catch {
-      return false;
+      setEbayConnected(false);
     }
-  };
+  }, []);
 
-  const ebayStatus = getEbayConnectionStatus();
+  // Check connection on mount and when tab changes to settings
+  useEffect(() => {
+    checkEbayConnection();
+  }, [checkEbayConnection]);
+
+  // Re-check when returning to app (e.g., after OAuth popup)
+  useEffect(() => {
+    const handleFocus = () => checkEbayConnection();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [checkEbayConnection]);
+
+  // Listen for OAuth success message from popup
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'EBAY_OAUTH_SUCCESS') {
+        checkEbayConnection();
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [checkEbayConnection]);
+
+  const ebayStatus = ebayConnected;
   const geminiStatus = settings.geminiKey.length > 20;
 
   const renderTab = () => {
@@ -173,7 +197,7 @@ const App: React.FC = () => {
                   onRetryStage={handleRetryStage}
                 />;
       case 'settings':
-        return <SettingsTab settings={settings} setSettings={setSettings} />;
+        return <SettingsTab settings={settings} setSettings={setSettings} onEbayConnect={checkEbayConnection} />;
       default:
         return <ProductsTab products={products} setProducts={setProducts} settings={settings} ebayConnected={ebayStatus} onError={handleError} addLog={addLog} />;
     }

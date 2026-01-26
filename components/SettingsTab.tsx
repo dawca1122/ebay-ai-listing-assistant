@@ -13,6 +13,7 @@ import {
 interface SettingsTabProps {
   settings: AppSettings;
   setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
+  onEbayConnect?: () => void;
 }
 
 interface EbayTokens {
@@ -83,7 +84,7 @@ const isTokenValid = (tokens: EbayTokens | null): boolean => {
   return tokens.expiresAt > Date.now() + (5 * 60 * 1000);
 };
 
-const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
+const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbayConnect }) => {
   // OAuth state
   const [isConnected, setIsConnected] = useState(false);
   const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
@@ -122,6 +123,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
         console.log('OAuth success - storing tokens in localStorage for backward compatibility');
         storeTokens(event.data.tokens);
         checkConnectionStatus();
+        onEbayConnect?.(); // Notify parent to refresh status
         setIsConnecting(false);
       } else if (event.data?.type === 'EBAY_AUTH_ERROR') {
         console.error('OAuth error:', event.data.error);
