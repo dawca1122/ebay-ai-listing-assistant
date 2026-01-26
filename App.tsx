@@ -1,12 +1,24 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import Layout from './components/Layout';
-import ProductsTab from './components/ProductsTab';
-import PricingTab from './components/PricingTab';
-import PublicationTab from './components/PublicationTab';
-import SettingsTab from './components/SettingsTab';
-import DebugTab from './components/DebugTab';
 import { Product, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS, DEFAULT_GEMINI_MODELS, DEFAULT_AI_INSTRUCTIONS, DEFAULT_COMPANY_BANNER } from './types';
+
+// Lazy load heavy components for code splitting
+const ProductsTab = lazy(() => import('./components/ProductsTab'));
+const PricingTab = lazy(() => import('./components/PricingTab'));
+const PublicationTab = lazy(() => import('./components/PublicationTab'));
+const SettingsTab = lazy(() => import('./components/SettingsTab'));
+const DebugTab = lazy(() => import('./components/DebugTab'));
+
+// Loading fallback component
+const TabLoading = () => (
+  <div className="flex items-center justify-center h-64">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+      <p className="text-slate-500 text-sm">Ładowanie...</p>
+    </div>
+  </div>
+);
 
 const INITIAL_SETTINGS: AppSettings = {
   ebay: {
@@ -226,7 +238,9 @@ const App: React.FC = () => {
       geminiStatus={geminiStatus}
       lastError={lastError}
     >
-      {renderTab()}
+      <Suspense fallback={<TabLoading />}>
+        {renderTab()}
+      </Suspense>
     </Layout>
   );
 };
