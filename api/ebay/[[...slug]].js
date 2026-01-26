@@ -1065,24 +1065,40 @@ async function handleMarketPriceCheck(req, res) {
     
     const { ean, keywords, limit = 20 } = req.body;
     
-    const searchQuery = ean || keywords;
-    if (!searchQuery) {
+    if (!ean && !keywords) {
       return res.status(400).json({ error: 'ean or keywords is required' });
     }
     
-    const searchUrl = `${apiBase}/buy/browse/v1/item_summary/search?q=${encodeURIComponent(searchQuery)}&limit=${limit}&filter=buyingOptions:{FIXED_PRICE}`;
+    // Helper function to search eBay
+    async function searchEbay(query) {
+      const searchUrl = `${apiBase}/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=${limit}&filter=buyingOptions:{FIXED_PRICE}`;
+      const response = await fetch(searchUrl, {
+        headers: { 
+          'Authorization': `Bearer ${accessToken}`,
+          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+        }
+      });
+      return response.json();
+    }
     
-    const response = await fetch(searchUrl, {
-      headers: { 
-        'Authorization': `Bearer ${accessToken}`,
-        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+    // Try EAN first, fallback to keywords if no results
+    let data;
+    let usedQuery = ean || keywords;
+    
+    if (ean) {
+      data = await searchEbay(ean);
+      // If EAN returns no results, try keywords
+      if ((!data.itemSummaries || data.itemSummaries.length === 0) && keywords) {
+        console.log(`[Price Check] EAN "${ean}" returned 0 results, trying keywords: "${keywords}"`);
+        data = await searchEbay(keywords);
+        usedQuery = keywords;
       }
-    });
+    } else {
+      data = await searchEbay(keywords);
+    }
     
-    const data = await response.json();
-    
-    if (!response.ok) {
-      return res.status(response.status).json({ 
+    if (data.errors) {
+      return res.status(400).json({ 
         error: data.errors?.[0]?.message || 'Search failed',
         data 
       });
@@ -1103,7 +1119,8 @@ async function handleMarketPriceCheck(req, res) {
     const prices = items.map(i => i.total).filter(p => p > 0).sort((a, b) => a - b);
     
     return res.status(200).json({
-      query: searchQuery,
+      query: usedQuery,
+      queryType: ean && usedQuery !== ean ? 'keywords (fallback)' : (ean ? 'ean' : 'keywords'),
       totalResults: data.total || items.length,
       items,
       statistics: {
