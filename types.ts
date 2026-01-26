@@ -151,6 +151,9 @@ export interface CompetitorPrice {
   shipping: number;
   total: number;
   seller: string;
+  title?: string;
+  itemId?: string;
+  condition?: string;
   deliveryDays?: number;
 }
 

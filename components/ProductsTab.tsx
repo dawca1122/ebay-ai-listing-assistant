@@ -111,6 +111,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
   // Research preview modal
   const [researchPreviewId, setResearchPreviewId] = useState<string | null>(null);
   
+  // Competition prices preview modal
+  const [competitionPreviewId, setCompetitionPreviewId] = useState<string | null>(null);
+  
   // Description preview modal
   const [previewProductId, setPreviewProductId] = useState<string | null>(null);
   const [editingDescription, setEditingDescription] = useState<string>('');
@@ -587,7 +590,10 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           price: i.price,
           shipping: i.shipping,
           total: i.total,
-          seller: i.seller
+          seller: i.seller,
+          title: i.title,
+          itemId: i.itemId,
+          condition: i.condition
         })),
         minTotalCompetition: result.statistics.min,
         medianTotalCompetition: result.statistics.median,
@@ -855,7 +861,10 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             price: i.price,
             shipping: i.shipping,
             total: i.total,
-            seller: i.seller
+            seller: i.seller,
+            title: i.title,
+            itemId: i.itemId,
+            condition: i.condition
           })),
           minTotalCompetition: result.statistics.min,
           medianTotalCompetition: result.statistics.median,
@@ -1745,9 +1754,13 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                               ◆ {p.medianTotalCompetition?.toFixed(2) || '---'}€
                             </span>
                             {p.competitorPrices && p.competitorPrices.length > 0 && (
-                              <span className="text-slate-400 text-[10px]">
-                                ({p.competitorPrices.length} ofert)
-                              </span>
+                              <button
+                                onClick={() => setCompetitionPreviewId(p.id)}
+                                className="text-purple-500 text-[10px] hover:text-purple-700 underline cursor-pointer"
+                                title="👁️ Zobacz oferty konkurencji"
+                              >
+                                👁️ {p.competitorPrices.length} ofert
+                              </button>
                             )}
                           </div>
                         ) : (
@@ -1964,6 +1977,134 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           </div>
         </div>
       )}
+
+      {/* Competition Prices Preview Modal */}
+      {competitionPreviewId && (() => {
+        const product = products.find(p => p.id === competitionPreviewId);
+        const prices = product?.competitorPrices || [];
+        const sortedByPrice = [...prices].sort((a, b) => a.total - b.total);
+        const cheapest = sortedByPrice[0];
+        const mostExpensive = sortedByPrice.slice(-2).reverse(); // 2 najdroższe
+        
+        const getEbayLink = (itemId?: string) => {
+          if (!itemId) return null;
+          // eBay item IDs can be in format "v1|123456789|0" - extract the middle part
+          const parts = itemId.split('|');
+          const realId = parts.length === 3 ? parts[1] : itemId;
+          return `https://www.ebay.de/itm/${realId}`;
+        };
+        
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setCompetitionPreviewId(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-[90vw] max-w-3xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="p-4 bg-gradient-to-r from-amber-500 to-orange-600 text-white flex justify-between items-center">
+                <h3 className="font-bold text-lg">💰 Oferty Konkurencji</h3>
+                <button onClick={() => setCompetitionPreviewId(null)} className="text-2xl hover:text-amber-200">×</button>
+              </div>
+              
+              <div className="p-4 bg-slate-50 border-b border-slate-200">
+                <div className="flex items-center gap-4 text-sm">
+                  <span className="font-bold text-slate-600">Produkt:</span>
+                  <span className="text-slate-800">{product?.title || product?.inputName}</span>
+                </div>
+                <div className="flex gap-6 mt-2 text-sm">
+                  <span><strong className="text-green-600">Min:</strong> {product?.minTotalCompetition?.toFixed(2)}€</span>
+                  <span><strong className="text-blue-600">Median:</strong> {product?.medianTotalCompetition?.toFixed(2)}€</span>
+                  <span><strong className="text-slate-500">Ofert:</strong> {prices.length}</span>
+                </div>
+              </div>
+              
+              <div className="p-6 overflow-auto max-h-[50vh]">
+                {/* Najtańsza oferta */}
+                {cheapest && (
+                  <div className="mb-6">
+                    <h4 className="text-sm font-bold text-green-700 mb-3 flex items-center gap-2">
+                      🏆 Najtańsza oferta
+                    </h4>
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-slate-800 mb-1">{cheapest.title || 'Brak tytułu'}</p>
+                          <p className="text-xs text-slate-500">
+                            Sprzedawca: <strong>{cheapest.seller}</strong> | Stan: {cheapest.condition || 'N/A'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xl font-black text-green-600">{cheapest.total.toFixed(2)}€</p>
+                          <p className="text-xs text-slate-500">{cheapest.price.toFixed(2)}€ + {cheapest.shipping.toFixed(2)}€ wysyłka</p>
+                        </div>
+                      </div>
+                      {getEbayLink(cheapest.itemId) && (
+                        <a 
+                          href={getEbayLink(cheapest.itemId)!} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="mt-3 inline-flex items-center gap-2 text-xs text-green-700 hover:text-green-900 underline"
+                        >
+                          🔗 Zobacz na eBay.de
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* 2 Najdroższe oferty */}
+                {mostExpensive.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold text-red-700 mb-3 flex items-center gap-2">
+                      💎 Najdroższe oferty (top 2)
+                    </h4>
+                    <div className="space-y-3">
+                      {mostExpensive.map((item, idx) => (
+                        <div key={idx} className="bg-red-50 border border-red-200 rounded-xl p-4">
+                          <div className="flex justify-between items-start gap-4">
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-slate-800 mb-1">{item.title || 'Brak tytułu'}</p>
+                              <p className="text-xs text-slate-500">
+                                Sprzedawca: <strong>{item.seller}</strong> | Stan: {item.condition || 'N/A'}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xl font-black text-red-600">{item.total.toFixed(2)}€</p>
+                              <p className="text-xs text-slate-500">{item.price.toFixed(2)}€ + {item.shipping.toFixed(2)}€ wysyłka</p>
+                            </div>
+                          </div>
+                          {getEbayLink(item.itemId) && (
+                            <a 
+                              href={getEbayLink(item.itemId)!} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="mt-3 inline-flex items-center gap-2 text-xs text-red-700 hover:text-red-900 underline"
+                            >
+                              🔗 Zobacz na eBay.de
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {prices.length === 0 && (
+                  <div className="text-center py-12 text-slate-400">
+                    <p className="text-4xl mb-4">📊</p>
+                    <p>Brak danych o cenach konkurencji</p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end">
+                <button
+                  onClick={() => setCompetitionPreviewId(null)}
+                  className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300"
+                >
+                  Zamknij
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Description Preview Modal */}
       {previewProductId && (

@@ -76,7 +76,10 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
           price: i.price,
           shipping: i.shipping,
           total: i.total,
-          seller: i.seller
+          seller: i.seller,
+          title: i.title,
+          itemId: i.itemId,
+          condition: i.condition
         })),
         minTotalCompetition: data.statistics.min,
         medianTotalCompetition: data.statistics.median,
