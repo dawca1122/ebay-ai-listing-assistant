@@ -44,8 +44,9 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
     // Application Token - nie wymaga logowania użytkownika
 
     try {
-      const searchQuery = product.ean || product.title || product.inputName;
-      const data = await checkMarketPrices(product.ean, searchQuery);
+      // Keywords = tytuł/nazwa produktu (fallback gdy EAN nie daje wyników)
+      const keywords = product.title || product.inputName || '';
+      const data = await checkMarketPrices(product.ean, keywords);
       
       const newSuggested = calculateSuggestedPrice(
         data.statistics.min, 

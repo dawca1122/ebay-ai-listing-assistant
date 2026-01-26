@@ -551,8 +551,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     try {
       updateProduct(productId, { status: ProductStatus.AI_PROCESSING });
       
-      const searchQuery = product.ean || product.title || product.inputName;
-      const result = await checkMarketPrices(product.ean, searchQuery);
+      // Keywords = tytuł/nazwa produktu (fallback gdy EAN nie daje wyników)
+      const keywords = product.title || product.inputName || '';
+      const result = await checkMarketPrices(product.ean, keywords);
       
       const { undercutMode, undercutBy, minGrossPrice } = settings.pricingRules;
       let recommendedPrice = undercutMode === 'median' ? result.statistics.median : result.statistics.min;
@@ -816,10 +817,10 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
 
     for (const product of selected) {
       try {
-        // Search by EAN first, fallback to title
-        const searchQuery = product.ean || product.title || product.inputName;
+        // Keywords = tytuł/nazwa produktu (fallback gdy EAN nie daje wyników)
+        const keywords = product.title || product.inputName || '';
         
-        const result = await checkMarketPrices(product.ean, searchQuery);
+        const result = await checkMarketPrices(product.ean, keywords);
 
         // Calculate recommended price
         const { undercutMode, undercutBy, minGrossPrice } = settings.pricingRules;
