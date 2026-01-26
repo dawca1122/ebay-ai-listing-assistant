@@ -870,10 +870,10 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
                 {/* Product Research */}
                 <div className="md:col-span-2 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200">
                   <label className="block text-[10px] font-black uppercase text-purple-600 mb-2 ml-1">
-                    🔬 Research Produktu (Deep Search)
+                    🔬 Research Produktu (Google Search)
                   </label>
                   <select
-                    value={settings.geminiModels?.productResearch || 'deep-research-pro-preview'}
+                    value={settings.geminiModels?.productResearch || 'gemini-2.5-pro'}
                     onChange={(e) => updateSection('geminiModels', { productResearch: e.target.value as GeminiModelId })}
                     className="w-full px-4 py-3 bg-white border border-purple-200 rounded-xl text-sm"
                   >
@@ -884,7 +884,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
                     ))}
                   </select>
                   <p className="text-[9px] text-purple-500 mt-1 ml-1">
-                    {GEMINI_MODELS[settings.geminiModels?.productResearch || 'deep-research-pro-preview']?.desc}
+                    {GEMINI_MODELS[settings.geminiModels?.productResearch || 'gemini-2.5-pro']?.desc}
                   </p>
                   <p className="text-[9px] text-slate-500 mt-2 ml-1">
                     ⚡ Ten model wyszukuje w internecie informacje o produkcie przed generowaniem tytułu/opisu

@@ -108,7 +108,7 @@ export const DEFAULT_COMPANY_BANNER = `
 // Domyślne ustawienia modeli
 export const DEFAULT_GEMINI_MODELS: GeminiModelSettings = {
   titleDescription: 'gemini-2.5-flash',
-  productResearch: 'deep-research-pro-preview',
+  productResearch: 'gemini-2.5-pro',
   priceSearch: 'gemini-2.5-flash',
   tableAnalysis: 'gemini-2.5-pro',
   categorySearch: 'gemini-2.5-flash',
