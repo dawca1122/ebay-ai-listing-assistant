@@ -1070,8 +1070,9 @@ async function handleMarketPriceCheck(req, res) {
     }
     
     // Helper function to search eBay
+    // Filter: FIXED_PRICE only, conditionIds: 1000=New, 1500=New other, 2000=Refurbished, 2500=Seller refurbished
     async function searchEbay(query) {
-      const searchUrl = `${apiBase}/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=${limit}&filter=buyingOptions:{FIXED_PRICE}`;
+      const searchUrl = `${apiBase}/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=${limit}&filter=buyingOptions:{FIXED_PRICE},conditionIds:{1000|1500|2000|2500|3000}`;
       const response = await fetch(searchUrl, {
         headers: { 
           'Authorization': `Bearer ${accessToken}`,

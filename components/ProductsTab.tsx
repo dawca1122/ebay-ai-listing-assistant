@@ -1983,8 +1983,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         const product = products.find(p => p.id === competitionPreviewId);
         const prices = product?.competitorPrices || [];
         const sortedByPrice = [...prices].sort((a, b) => a.total - b.total);
-        const cheapest = sortedByPrice[0];
-        const mostExpensive = sortedByPrice.slice(-2).reverse(); // 2 najdroższe
+        const top10 = sortedByPrice.slice(0, 10); // Top 10 najtańszych
         
         const getEbayLink = (itemId?: string) => {
           if (!itemId) return null;
@@ -1996,9 +1995,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         
         return (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setCompetitionPreviewId(null)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-[90vw] max-w-3xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white rounded-2xl shadow-2xl w-[90vw] max-w-4xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
               <div className="p-4 bg-gradient-to-r from-amber-500 to-orange-600 text-white flex justify-between items-center">
-                <h3 className="font-bold text-lg">💰 Oferty Konkurencji</h3>
+                <h3 className="font-bold text-lg">💰 Top 10 Ofert Konkurencji (tylko nowe)</h3>
                 <button onClick={() => setCompetitionPreviewId(null)} className="text-2xl hover:text-amber-200">×</button>
               </div>
               
@@ -2014,78 +2013,49 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                 </div>
               </div>
               
-              <div className="p-6 overflow-auto max-h-[50vh]">
-                {/* Najtańsza oferta */}
-                {cheapest && (
-                  <div className="mb-6">
-                    <h4 className="text-sm font-bold text-green-700 mb-3 flex items-center gap-2">
-                      🏆 Najtańsza oferta
-                    </h4>
-                    <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-slate-800 mb-1">{cheapest.title || 'Brak tytułu'}</p>
+              <div className="p-4 overflow-auto max-h-[60vh]">
+                {top10.length > 0 ? (
+                  <div className="space-y-2">
+                    {top10.map((item, idx) => (
+                      <div 
+                        key={idx} 
+                        className={`border rounded-lg p-3 flex items-center gap-4 ${
+                          idx === 0 ? 'bg-green-50 border-green-300' : 'bg-white border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold bg-slate-100 text-slate-600">
+                          {idx + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate" title={item.title}>
+                            {item.title || 'Brak tytułu'}
+                          </p>
                           <p className="text-xs text-slate-500">
-                            Sprzedawca: <strong>{cheapest.seller}</strong> | Stan: {cheapest.condition || 'N/A'}
+                            👤 {item.seller} | 📦 {item.condition || 'N/A'}
                           </p>
                         </div>
-                        <div className="text-right">
-                          <p className="text-xl font-black text-green-600">{cheapest.total.toFixed(2)}€</p>
-                          <p className="text-xs text-slate-500">{cheapest.price.toFixed(2)}€ + {cheapest.shipping.toFixed(2)}€ wysyłka</p>
+                        <div className="text-right whitespace-nowrap">
+                          <p className={`text-lg font-black ${idx === 0 ? 'text-green-600' : 'text-slate-700'}`}>
+                            {item.total.toFixed(2)}€
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            {item.price.toFixed(2)}€ + {item.shipping.toFixed(2)}€
+                          </p>
                         </div>
+                        {getEbayLink(item.itemId) && (
+                          <a 
+                            href={getEbayLink(item.itemId)!} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600 whitespace-nowrap"
+                          >
+                            🔗 eBay
+                          </a>
+                        )}
                       </div>
-                      {getEbayLink(cheapest.itemId) && (
-                        <a 
-                          href={getEbayLink(cheapest.itemId)!} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="mt-3 inline-flex items-center gap-2 text-xs text-green-700 hover:text-green-900 underline"
-                        >
-                          🔗 Zobacz na eBay.de
-                        </a>
-                      )}
-                    </div>
+                    ))}
                   </div>
-                )}
-                
-                {/* 2 Najdroższe oferty */}
-                {mostExpensive.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-bold text-red-700 mb-3 flex items-center gap-2">
-                      💎 Najdroższe oferty (top 2)
-                    </h4>
-                    <div className="space-y-3">
-                      {mostExpensive.map((item, idx) => (
-                        <div key={idx} className="bg-red-50 border border-red-200 rounded-xl p-4">
-                          <div className="flex justify-between items-start gap-4">
-                            <div className="flex-1">
-                              <p className="text-sm font-medium text-slate-800 mb-1">{item.title || 'Brak tytułu'}</p>
-                              <p className="text-xs text-slate-500">
-                                Sprzedawca: <strong>{item.seller}</strong> | Stan: {item.condition || 'N/A'}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-xl font-black text-red-600">{item.total.toFixed(2)}€</p>
-                              <p className="text-xs text-slate-500">{item.price.toFixed(2)}€ + {item.shipping.toFixed(2)}€ wysyłka</p>
-                            </div>
-                          </div>
-                          {getEbayLink(item.itemId) && (
-                            <a 
-                              href={getEbayLink(item.itemId)!} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="mt-3 inline-flex items-center gap-2 text-xs text-red-700 hover:text-red-900 underline"
-                            >
-                              🔗 Zobacz na eBay.de
-                            </a>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {prices.length === 0 && (
+                ) : (
                   <div className="text-center py-12 text-slate-400">
                     <p className="text-4xl mb-4">📊</p>
                     <p>Brak danych o cenach konkurencji</p>
@@ -2093,7 +2063,10 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                 )}
               </div>
               
-              <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end">
+              <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center">
+                <p className="text-xs text-slate-500">
+                  💡 Pokazano tylko nowe produkty (bez używanych)
+                </p>
                 <button
                   onClick={() => setCompetitionPreviewId(null)}
                   className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300"
