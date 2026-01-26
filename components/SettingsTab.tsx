@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AppSettings, EBAY_DE_CONSTANTS } from '../types';
 import { 
   getOAuthStatus, 
-  startOAuth, 
+  getOAuthStartUrl,
   disconnectOAuth, 
   testEbayConnection, 
   fetchPolicies, 
@@ -125,6 +125,10 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
         setIsConnecting(false);
       } else if (event.data?.type === 'EBAY_AUTH_ERROR') {
         console.error('OAuth error:', event.data.error);
+        // Handle invalid_scope specifically
+        if (event.data.isInvalidScope) {
+          alert('eBay odrzucił scope. Poprawiono konfigurację — uruchom Połącz eBay ponownie.');
+        }
         setIsConnecting(false);
       }
     };
@@ -159,19 +163,15 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
     }, 500);
   };
 
-  const handleConnectEbay = async () => {
+  const handleConnectEbay = () => {
     setIsConnecting(true);
     
     try {
-      // Get auth URL from new endpoint
-      const { authUrl } = await startOAuth();
+      // Open popup directly to OAuth start endpoint - it will redirect to eBay
+      const oauthUrl = getOAuthStartUrl();
+      console.log('[OAuth] Opening popup to:', oauthUrl);
       
-      if (!authUrl) {
-        throw new Error('Nie udało się wygenerować URL autoryzacji');
-      }
-      
-      // Open OAuth popup
-      const authWindow = window.open(authUrl, 'ebay_oauth', 'width=600,height=700');
+      const authWindow = window.open(oauthUrl, 'ebay_oauth', 'width=600,height=700');
       
       // Monitor popup closing
       const checkClosed = setInterval(() => {

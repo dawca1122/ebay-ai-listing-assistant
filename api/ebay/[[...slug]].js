@@ -333,36 +333,44 @@ async function refreshAccessTokenInternal(refreshToken) {
 // OAuth Handlers
 // =============================================================================
 
+// WHITELISTED SCOPES - DO NOT MODIFY
+// These are the only scopes that work with eBay OAuth
+const EBAY_SCOPES = [
+  'https://api.ebay.com/oauth/api_scope',
+  'https://api.ebay.com/oauth/api_scope/sell.inventory',
+  'https://api.ebay.com/oauth/api_scope/sell.account',
+  'https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+  'https://api.ebay.com/oauth/api_scope/commerce.taxonomy.readonly'
+];
+
 async function handleOAuthStart(req, res) {
   const { clientId, ruName, environment } = getEbayCredentials();
   
   if (!clientId || !ruName) {
     return res.status(400).json({ 
       error: 'Missing eBay credentials',
-      missing: !clientId ? 'EBAY_CLIENT_ID' : 'EBAY_RUNAME'
+      missing: !clientId ? 'EBAY_CLIENT_ID' : 'EBAY_RUNAME',
+      hint: 'Set EBAY_CLIENT_ID and EBAY_RUNAME in Vercel environment variables'
     });
   }
   
   const state = 'ebay_' + Math.random().toString(36).substring(2, 15);
   const authBase = getEbayAuthUrl(environment);
   
-  const scopes = [
-    'https://api.ebay.com/oauth/api_scope',
-    'https://api.ebay.com/oauth/api_scope/sell.inventory',
-    'https://api.ebay.com/oauth/api_scope/sell.account',
-    'https://api.ebay.com/oauth/api_scope/sell.fulfillment',
-    'https://api.ebay.com/oauth/api_scope/commerce.catalog.readonly'
-  ];
-  
+  // Use whitelisted scopes only - NO commerce.catalog.readonly (causes invalid_scope)
   const authUrl = `${authBase}/oauth2/authorize?` + new URLSearchParams({
     client_id: clientId,
-    redirect_uri: ruName,
+    redirect_uri: ruName,  // This is the RuName, not a URL
     response_type: 'code',
-    scope: scopes.join(' '),
+    scope: EBAY_SCOPES.join(' '),
     state: state
   }).toString();
   
-  return res.status(200).json({ authUrl, state });
+  console.log('[eBay OAuth] Redirecting to:', authUrl);
+  
+  // Return 302 redirect to eBay auth page
+  res.setHeader('Location', authUrl);
+  return res.status(302).end();
 }
 
 async function handleOAuthCallback(req, res) {
@@ -370,13 +378,33 @@ async function handleOAuthCallback(req, res) {
   const code = url.searchParams.get('code');
   const error = url.searchParams.get('error');
   const errorDesc = url.searchParams.get('error_description');
+  const state = url.searchParams.get('state');
+  
+  console.log('[eBay OAuth Callback] Params:', { code: code ? 'present' : 'missing', error, errorDesc, state });
+  
+  // Handle invalid_scope error specifically
+  if (error === 'invalid_scope') {
+    console.error('[eBay OAuth] Invalid scope error - check EBAY_SCOPES whitelist');
+    return sendCallbackResponse(res, false, 'invalid_scope', null, {
+      isInvalidScope: true,
+      hint: 'eBay odrzucił scope. Poprawiono konfigurację — uruchom Połącz eBay ponownie.',
+      fullUrl: req.url
+    });
+  }
   
   if (error) {
+    console.error('[eBay OAuth] Error:', error, errorDesc);
     return sendCallbackResponse(res, false, `${error}: ${errorDesc}`);
   }
   
   if (!code) {
-    return sendCallbackResponse(res, false, 'No authorization code received');
+    console.error('[eBay OAuth] No code received. Query:', Object.fromEntries(url.searchParams));
+    return res.status(400).json({
+      success: false,
+      error: 'NO_CODE',
+      details: Object.fromEntries(url.searchParams),
+      hint: 'Authorization code not received from eBay'
+    });
   }
   
   try {
@@ -425,8 +453,14 @@ async function handleOAuthCallback(req, res) {
   }
 }
 
-function sendCallbackResponse(res, success, error = null, tokens = null) {
+function sendCallbackResponse(res, success, error = null, tokens = null, extra = {}) {
   const tokensBase64 = tokens ? Buffer.from(JSON.stringify(tokens)).toString('base64') : '';
+  const isInvalidScope = extra.isInvalidScope || false;
+  const hint = extra.hint || '';
+  
+  const errorMessage = isInvalidScope 
+    ? 'eBay odrzucił scope. Poprawiono konfigurację — uruchom Połącz eBay ponownie.'
+    : (error || 'Unknown error');
   
   return res.send(`
     <!DOCTYPE html>
@@ -438,21 +472,27 @@ function sendCallbackResponse(res, success, error = null, tokens = null) {
           <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
           <h1 style="color: #16a34a; margin: 0 0 8px 0;">Sukces!</h1>
           <p style="color: #64748b;">Połączono z eBay. To okno zamknie się automatycznie.</p>
+          <p style="font-size: 12px; color: #94a3b8;">Refresh token zapisany ✓</p>
         ` : `
           <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
           <h1 style="color: #dc2626; margin: 0 0 8px 0;">Błąd autoryzacji</h1>
-          <p style="color: #64748b;">${error || 'Unknown error'}</p>
+          <p style="color: #64748b;">${errorMessage}</p>
+          ${hint ? `<p style="font-size: 12px; color: #f97316; margin-top: 8px;">${hint}</p>` : ''}
         `}
       </div>
       <script>
+        console.log('[eBay Callback] Success:', ${success}, 'Error:', '${error}');
         ${success ? `
           const tokensBase64 = '${tokensBase64}';
           const tokens = tokensBase64 ? JSON.parse(atob(tokensBase64)) : null;
+          console.log('[eBay Callback] Tokens received, refresh_token:', tokens?.refreshToken ? 'present' : 'missing');
           window.opener?.postMessage({ type: 'EBAY_AUTH_SUCCESS', tokens }, '*');
         ` : `
-          window.opener?.postMessage({ type: 'EBAY_AUTH_ERROR', error: '${error}' }, '*');
+          const errorData = { error: '${error}', isInvalidScope: ${isInvalidScope} };
+          console.error('[eBay Callback] Error:', errorData);
+          window.opener?.postMessage({ type: 'EBAY_AUTH_ERROR', ...errorData }, '*');
         `}
-        setTimeout(() => window.close(), 2000);
+        setTimeout(() => window.close(), ${success ? 2000 : 5000});
       </script>
     </body>
     </html>
@@ -521,9 +561,11 @@ async function handleOAuthDisconnect(req, res) {
 
 async function handleTest(req, res) {
   try {
-    const { accessToken } = await getValidAccessToken(req, res);
+    const { accessToken, tokens } = await getValidAccessToken(req, res);
     const { environment } = getEbayCredentials();
     const apiBase = getEbayBaseUrl(environment);
+    
+    console.log('[eBay Test] Calling taxonomy API with token:', accessToken ? 'present' : 'missing');
     
     const response = await fetch(`${apiBase}/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id=EBAY_DE`, {
       headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -536,22 +578,53 @@ async function handleTest(req, res) {
         success: true,
         categoryTreeId: data.categoryTreeId,
         categoryTreeVersion: data.categoryTreeVersion,
-        message: `Category Tree ID: ${data.categoryTreeId} (expected: 77 for EBAY_DE)`
+        message: `Category Tree ID: ${data.categoryTreeId} (expected: 77 for EBAY_DE)`,
+        hasRefreshToken: tokens?.refreshToken ? true : false
       });
     }
     
+    // eBay returned an error
+    const ebayError = data.errors?.[0];
     return res.status(200).json({
       success: false,
-      error: data.errors?.[0]?.message || 'API error',
+      error: ebayError?.message || 'eBay API error',
+      error_id: ebayError?.errorId,
+      error_description: ebayError?.longMessage || ebayError?.message,
+      http_status_code: response.status,
+      hint: getErrorHint(ebayError?.errorId, response.status),
       data
     });
     
   } catch (error) {
     if (error.message === 'NOT_AUTHENTICATED') {
-      return res.status(401).json({ success: false, error: 'Not authenticated' });
+      return res.status(200).json({ 
+        success: false, 
+        error: 'Not authenticated',
+        hint: 'Połącz eBay w Ustawieniach'
+      });
     }
-    return res.status(500).json({ success: false, error: error.message });
+    if (error.message === 'TOKEN_EXPIRED') {
+      return res.status(200).json({ 
+        success: false, 
+        error: 'Token expired',
+        hint: 'Token wygasł - połącz ponownie z eBay'
+      });
+    }
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      hint: 'Wystąpił błąd serwera'
+    });
   }
+}
+
+// Helper to provide error hints based on eBay error codes
+function getErrorHint(errorId, httpStatus) {
+  if (httpStatus === 401) return 'Token nieważny - połącz ponownie z eBay';
+  if (httpStatus === 403) return 'Brak uprawnień - sprawdź scope OAuth';
+  if (errorId === 1001) return 'Nieprawidłowy token - połącz ponownie';
+  if (errorId === 1100) return 'Brak dostępu do tego zasobu';
+  return 'Sprawdź konfigurację eBay API';
 }
 
 async function handleTestConnection(req, res) {

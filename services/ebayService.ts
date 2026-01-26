@@ -473,17 +473,19 @@ export const publishToEbay = async (
 // ============================================
 // OAuth Actions
 // ============================================
+
+// Returns the URL to open in popup - backend will redirect to eBay
+export const getOAuthStartUrl = (): string => {
+  return `${API_BASE}/oauth/start`;
+};
+
+// Legacy: startOAuth for backward compatibility
 export const startOAuth = async (): Promise<{ authUrl: string; state: string }> => {
-  const response = await fetchWithCredentials(`${API_BASE}/oauth/start`, {
-    method: 'GET',
-  });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to start OAuth');
-  }
-  
-  return await response.json();
+  // Now we just return the endpoint URL since backend does 302 redirect
+  return { 
+    authUrl: getOAuthStartUrl(),
+    state: '' 
+  };
 };
 
 export const refreshOAuthToken = async (): Promise<{ success: boolean; expiresAt?: number }> => {
