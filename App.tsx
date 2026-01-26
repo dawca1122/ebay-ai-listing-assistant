@@ -1,11 +1,12 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Layout from './components/Layout';
 import ProductsTab from './components/ProductsTab';
 import PricingTab from './components/PricingTab';
 import PublicationTab from './components/PublicationTab';
 import SettingsTab from './components/SettingsTab';
-import { Product, AppSettings, EBAY_DE_CONSTANTS } from './types';
+import DebugTab from './components/DebugTab';
+import { Product, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS } from './types';
 
 const INITIAL_SETTINGS: AppSettings = {
   ebay: {
@@ -51,9 +52,18 @@ const App: React.FC = () => {
 
   const [lastError, setLastError] = useState<string | null>(null);
 
+  const [logs, setLogs] = useState<LogEntry[]>(() => {
+    const saved = localStorage.getItem('ebay_ai_logs');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   useEffect(() => {
     localStorage.setItem('ebay_ai_products', JSON.stringify(products));
   }, [products]);
+
+  useEffect(() => {
+    localStorage.setItem('ebay_ai_logs', JSON.stringify(logs));
+  }, [logs]);
 
   useEffect(() => {
     localStorage.setItem('ebay_ai_settings', JSON.stringify(settings));
@@ -63,6 +73,52 @@ const App: React.FC = () => {
     setLastError(msg);
     setTimeout(() => setLastError(null), 8000);
   };
+
+  // Add log entry
+  const addLog = useCallback((log: Omit<LogEntry, 'id' | 'timestamp'>) => {
+    const newLog: LogEntry = {
+      ...log,
+      id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: Date.now()
+    };
+    setLogs(prev => [newLog, ...prev].slice(0, 500)); // Keep max 500 logs
+  }, []);
+
+  // Retry stage handler (will be passed to DebugTab and handled by ProductsTab)
+  const handleRetryStage = useCallback((productId: string, stage: LogStage) => {
+    // Update product status to allow retry
+    setProducts(prev => prev.map(p => {
+      if (p.id !== productId) return p;
+      
+      // Reset to appropriate status based on stage
+      let newStatus = p.status;
+      switch (stage) {
+        case LogStage.AI:
+          newStatus = 'DRAFT' as any;
+          break;
+        case LogStage.CATEGORY:
+          newStatus = 'AI_DONE' as any;
+          break;
+        case LogStage.PRICE_CHECK:
+          newStatus = 'CATEGORY_DONE' as any;
+          break;
+        case LogStage.PRICE_SET:
+          newStatus = 'PRICE_CHECK_DONE' as any;
+          break;
+        case LogStage.DRAFT:
+          newStatus = 'PRICE_SET_DONE' as any;
+          break;
+        case LogStage.PUBLISH:
+          newStatus = 'DRAFT_OK' as any;
+          break;
+      }
+      
+      return { ...p, status: newStatus, lastError: '' };
+    }));
+    
+    // Switch to products tab
+    setActiveTab('products');
+  }, []);
 
   // Check eBay connection from localStorage tokens
   const getEbayConnectionStatus = (): boolean => {
@@ -91,6 +147,7 @@ const App: React.FC = () => {
                   settings={settings}
                   ebayConnected={ebayStatus}
                   onError={handleError}
+                  addLog={addLog}
                 />;
       case 'pricing':
         return <PricingTab 
@@ -107,11 +164,18 @@ const App: React.FC = () => {
                   settings={settings}
                   ebayStatus={ebayStatus} 
                   onError={handleError}
+                  addLog={addLog}
+                />;
+      case 'debug':
+        return <DebugTab 
+                  products={products}
+                  logs={logs}
+                  onRetryStage={handleRetryStage}
                 />;
       case 'settings':
         return <SettingsTab settings={settings} setSettings={setSettings} />;
       default:
-        return <ProductsTab products={products} setProducts={setProducts} settings={settings} ebayConnected={ebayStatus} onError={handleError} />;
+        return <ProductsTab products={products} setProducts={setProducts} settings={settings} ebayConnected={ebayStatus} onError={handleError} addLog={addLog} />;
     }
   };
 

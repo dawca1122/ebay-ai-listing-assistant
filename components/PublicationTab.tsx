@@ -1,7 +1,5 @@
-
 import React, { useState } from 'react';
-import { Product, ProductStatus, AppSettings } from '../types';
-import { publishToEbay } from '../services/ebayService';
+import { Product, ProductStatus, ProductCondition, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS } from '../types';
 
 interface PublicationTabProps {
   products: Product[];
@@ -9,9 +7,22 @@ interface PublicationTabProps {
   settings: AppSettings;
   ebayStatus: boolean;
   onError: (msg: string) => void;
+  addLog: (log: Omit<LogEntry, 'id' | 'timestamp'>) => void;
 }
 
-const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, settings, ebayStatus, onError }) => {
+const API_BASE = '/api/ebay';
+
+const getStoredTokens = () => {
+  const stored = localStorage.getItem('ebay_oauth_tokens');
+  if (!stored) return null;
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return null;
+  }
+};
+
+const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, settings, ebayStatus, onError, addLog }) => {
   const readyProducts = products.filter(p => p.status === ProductStatus.DRAFT_OK);
   const publishedProducts = products.filter(p => p.status === ProductStatus.PUBLISHED);
   
@@ -27,30 +38,152 @@ const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, 
     if (!product) return;
 
     if (!ebayStatus) {
-      onError("Brak połączenia z eBay! Sprawdź token i dane API w ustawieniach.");
+      onError("Brak połączenia z eBay! Sprawdź token w ustawieniach.");
+      return;
+    }
+
+    const tokens = getStoredTokens();
+    if (!tokens) {
+      onError('Brak tokenu eBay');
       return;
     }
 
     setPublishingId(id);
-    setCurrentStep('Inicjalizacja...');
+    
+    let inventoryPayload: any = null;
+    let offerPayload: any = null;
 
     try {
-      const result = await publishToEbay(product, settings, (step) => setCurrentStep(step));
+      // Step 1: Create/Update Inventory Item
+      setCurrentStep('Tworzenie inventory item...');
       
+      inventoryPayload = {
+        product: {
+          title: product.title,
+          description: product.descriptionHtml,
+          aspects: {},
+          ean: [product.ean]
+        },
+        condition: product.condition === ProductCondition.NEW ? 'NEW' : 'USED_EXCELLENT',
+        availability: {
+          shipToLocationAvailability: {
+            quantity: product.quantity
+          }
+        }
+      };
+
+      const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(product.sku)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokens.accessToken}`
+        },
+        body: JSON.stringify(inventoryPayload)
+      });
+
+      if (!invResponse.ok && invResponse.status !== 204) {
+        const errData = await invResponse.json();
+        throw new Error(errData.errors?.[0]?.message || `Inventory error ${invResponse.status}`);
+      }
+
+      // Step 2: Create Offer
+      setCurrentStep('Tworzenie oferty...');
+      
+      offerPayload = {
+        sku: product.sku,
+        marketplaceId: EBAY_DE_CONSTANTS.MARKETPLACE_ID,
+        format: 'FIXED_PRICE',
+        listingDescription: product.descriptionHtml,
+        availableQuantity: product.quantity,
+        categoryId: product.ebayCategoryId,
+        merchantLocationKey: settings.policies.merchantLocationKey,
+        pricingSummary: {
+          price: {
+            value: product.priceGross.toFixed(2),
+            currency: EBAY_DE_CONSTANTS.CURRENCY
+          }
+        },
+        listingPolicies: {
+          fulfillmentPolicyId: settings.policies.fulfillmentPolicyId,
+          paymentPolicyId: settings.policies.paymentPolicyId,
+          returnPolicyId: settings.policies.returnPolicyId
+        }
+      };
+
+      const offerResponse = await fetch(`${API_BASE}/offer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokens.accessToken}`
+        },
+        body: JSON.stringify(offerPayload)
+      });
+
+      const offerData = await offerResponse.json();
+      if (!offerResponse.ok) {
+        throw new Error(offerData.errors?.[0]?.message || `Offer error ${offerResponse.status}`);
+      }
+
+      const offerId = offerData.offerId;
+
+      // Step 3: Publish Offer
+      setCurrentStep('Publikacja oferty...');
+      
+      const publishResponse = await fetch(`${API_BASE}/offer/${offerId}/publish`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${tokens.accessToken}`
+        }
+      });
+
+      const publishData = await publishResponse.json();
+      if (!publishResponse.ok) {
+        throw new Error(publishData.errors?.[0]?.message || `Publish error ${publishResponse.status}`);
+      }
+
       updateProduct(id, {
         status: ProductStatus.PUBLISHED,
-        ebayOfferId: result.offerId,
-        ebayItemId: result.itemId,
+        ebayOfferId: offerId,
+        ebayItemId: publishData.listingId || '',
         lastError: ''
       });
+
+      addLog({
+        productId: product.id,
+        sku: product.sku,
+        ean: product.ean,
+        stage: LogStage.PUBLISH,
+        action: 'Publish to eBay',
+        success: true,
+        requestUrl: `${API_BASE}/offer/${offerId}/publish`,
+        requestMethod: 'POST',
+        responseStatus: publishResponse.status,
+        responseBody: publishData,
+        inventoryPayload,
+        offerPayload,
+        publishResponse: publishData
+      });
       
-      alert(`Sukces! Produkt wystawiony pod ID: ${result.itemId}`);
+      alert(`Sukces! Produkt wystawiony pod ID: ${publishData.listingId}`);
     } catch (err: any) {
       const msg = err.message || "Nieoczekiwany błąd podczas publikacji.";
       onError(msg);
       updateProduct(id, {
         status: ProductStatus.ERROR_PUBLISH,
         lastError: `Publikacja: ${msg}`
+      });
+
+      addLog({
+        productId: product.id,
+        sku: product.sku,
+        ean: product.ean,
+        stage: LogStage.PUBLISH,
+        action: 'Publish to eBay',
+        success: false,
+        ebayErrorMessage: msg,
+        hint: 'Sprawdź autoryzację eBay i dane oferty.',
+        inventoryPayload,
+        offerPayload
       });
     } finally {
       setPublishingId(null);

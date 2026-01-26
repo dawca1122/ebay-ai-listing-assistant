@@ -117,3 +117,44 @@ export const EBAY_DE_CONSTANTS = {
   CURRENCY: 'EUR',
   CATEGORY_TREE_ID: '77'
 };
+
+// ============ LOGI / DEBUG ============
+
+export enum LogStage {
+  AI = 'AI',
+  CATEGORY = 'CATEGORY',
+  PRICE_CHECK = 'PRICE_CHECK',
+  PRICE_SET = 'PRICE_SET',
+  DRAFT = 'DRAFT',
+  PUBLISH = 'PUBLISH'
+}
+
+export interface LogEntry {
+  id: string;
+  timestamp: number;
+  productId: string;
+  sku: string;
+  ean: string;
+  stage: LogStage;
+  action: string;               // np. "AI Generate", "Publish Offer"
+  success: boolean;
+  
+  // Request/Response
+  requestUrl?: string;
+  requestMethod?: string;
+  requestPayload?: any;
+  responseStatus?: number;
+  responseBody?: any;
+  
+  // eBay specific
+  ebayErrorId?: string;
+  ebayErrorMessage?: string;
+  
+  // Hints for debugging
+  hint?: string;
+  
+  // Payloads for eBay
+  inventoryPayload?: any;
+  offerPayload?: any;
+  publishResponse?: any;
+}

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Product, ProductStatus, ProductCondition, AppSettings, EBAY_DE_CONSTANTS} from '../types';
+import { Product, ProductStatus, ProductCondition, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS} from '../types';
 import { generateProductDetails, suggestCategory } from '../services/geminiService';
 
 interface ProductsTabProps {
@@ -8,6 +8,7 @@ interface ProductsTabProps {
   settings: AppSettings;
   ebayConnected: boolean;
   onError: (msg: string) => void;
+  addLog: (log: Omit<LogEntry, 'id' | 'timestamp'>) => void;
 }
 
 // Helper to get tokens from localStorage
@@ -40,7 +41,7 @@ const STATUS_CONFIG: Record<ProductStatus, { bg: string; text: string; label: st
   [ProductStatus.ERROR_PUBLISH]: { bg: 'bg-red-100', text: 'text-red-600', label: 'Pub Err' },
 };
 
-const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settings, ebayConnected, onError }) => {
+const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settings, ebayConnected, onError, addLog }) => {
   // State
   const [bulkInput, setBulkInput] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -178,10 +179,31 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           status: ProductStatus.AI_DONE,
           lastError: ''
         });
+
+        addLog({
+          productId: product.id,
+          sku: details.sku,
+          ean: product.ean,
+          stage: LogStage.AI,
+          action: 'AI Generate',
+          success: true,
+          responseBody: { sku: details.sku, title: details.title }
+        });
       } catch (err: any) {
         updateProduct(product.id, {
           status: ProductStatus.ERROR_AI,
           lastError: err.message || 'Błąd AI'
+        });
+
+        addLog({
+          productId: product.id,
+          sku: product.sku,
+          ean: product.ean,
+          stage: LogStage.AI,
+          action: 'AI Generate',
+          success: false,
+          ebayErrorMessage: err.message || 'Błąd AI',
+          hint: 'Sprawdź klucz API Gemini i połączenie internetowe.'
         });
       }
     }
@@ -214,6 +236,16 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             status: ProductStatus.CATEGORY_DONE,
             lastError: ''
           });
+
+          addLog({
+            productId: product.id,
+            sku: product.sku,
+            ean: product.ean,
+            stage: LogStage.CATEGORY,
+            action: 'Pick Category',
+            success: true,
+            responseBody: { categoryId: top.id, categoryName: top.name }
+          });
         } else {
           throw new Error('Brak sugestii kategorii');
         }
@@ -221,6 +253,17 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         updateProduct(product.id, {
           status: ProductStatus.ERROR_CATEGORY,
           lastError: err.message || 'Błąd kategorii'
+        });
+
+        addLog({
+          productId: product.id,
+          sku: product.sku,
+          ean: product.ean,
+          stage: LogStage.CATEGORY,
+          action: 'Pick Category',
+          success: false,
+          ebayErrorMessage: err.message || 'Błąd kategorii',
+          hint: 'Sprawdź czy EAN/nazwa produktu są poprawne.'
         });
       }
     }
@@ -294,10 +337,34 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           lastError: ''
         });
 
+        addLog({
+          productId: product.id,
+          sku: product.sku,
+          ean: product.ean,
+          stage: LogStage.PRICE_CHECK,
+          action: 'Check Prices',
+          success: true,
+          requestUrl: `${API_BASE}/browse/search?q=${encodeURIComponent(searchQuery)}`,
+          requestMethod: 'GET',
+          responseStatus: response.status,
+          responseBody: { count: competitorPrices.length, minTotal, medianTotal }
+        });
+
       } catch (err: any) {
         updateProduct(product.id, {
           status: ProductStatus.ERROR_PRICECHECK,
           lastError: err.message || 'Błąd sprawdzania cen'
+        });
+
+        addLog({
+          productId: product.id,
+          sku: product.sku,
+          ean: product.ean,
+          stage: LogStage.PRICE_CHECK,
+          action: 'Check Prices',
+          success: false,
+          ebayErrorMessage: err.message || 'Błąd sprawdzania cen',
+          hint: 'Może brak ofert dla tego produktu na eBay.'
         });
       }
     }
@@ -340,6 +407,16 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         status: ProductStatus.PRICE_SET_DONE,
         lastError: ''
       });
+
+      addLog({
+        productId: product.id,
+        sku: product.sku,
+        ean: product.ean,
+        stage: LogStage.PRICE_SET,
+        action: 'Set Price Auto',
+        success: true,
+        responseBody: { priceGross: parseFloat(priceGross.toFixed(2)), priceNet, rule: `${undercutMode} - ${undercutBy}€` }
+      });
     }
 
     setIsProcessing(false);
@@ -380,10 +457,31 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           status: ProductStatus.ERROR_DRAFT,
           lastError: errors.join(', ')
         });
+
+        addLog({
+          productId: product.id,
+          sku: product.sku,
+          ean: product.ean,
+          stage: LogStage.DRAFT,
+          action: 'Build Draft',
+          success: false,
+          ebayErrorMessage: errors.join(', '),
+          hint: 'Sprawdź czy wszystkie wymagane pola są uzupełnione.'
+        });
       } else {
         updateProduct(product.id, {
           status: ProductStatus.DRAFT_OK,
           lastError: ''
+        });
+
+        addLog({
+          productId: product.id,
+          sku: product.sku,
+          ean: product.ean,
+          stage: LogStage.DRAFT,
+          action: 'Build Draft',
+          success: true,
+          responseBody: { ready: true }
         });
       }
     }
@@ -414,11 +512,15 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     setIsProcessing(true);
 
     for (const product of selected) {
+      // Declare payloads outside try for catch access
+      let inventoryPayload: any = null;
+      let offerPayload: any = null;
+      
       try {
         setProcessingStep(`Publikacja: ${product.sku}...`);
 
         // Step 1: Create/Update Inventory Item
-        const inventoryPayload = {
+        inventoryPayload = {
           product: {
             title: product.title,
             description: product.descriptionHtml,
@@ -448,7 +550,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         }
 
         // Step 2: Create Offer
-        const offerPayload = {
+        offerPayload = {
           sku: product.sku,
           marketplaceId: EBAY_DE_CONSTANTS.MARKETPLACE_ID,
           format: 'FIXED_PRICE',
@@ -505,10 +607,39 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           lastError: ''
         });
 
+        addLog({
+          productId: product.id,
+          sku: product.sku,
+          ean: product.ean,
+          stage: LogStage.PUBLISH,
+          action: 'Publish to eBay',
+          success: true,
+          requestUrl: `${API_BASE}/offer/${offerId}/publish`,
+          requestMethod: 'POST',
+          responseStatus: publishResponse.status,
+          responseBody: publishData,
+          inventoryPayload,
+          offerPayload,
+          publishResponse: publishData
+        });
+
       } catch (err: any) {
         updateProduct(product.id, {
           status: ProductStatus.ERROR_PUBLISH,
           lastError: err.message || 'Błąd publikacji'
+        });
+
+        addLog({
+          productId: product.id,
+          sku: product.sku,
+          ean: product.ean,
+          stage: LogStage.PUBLISH,
+          action: 'Publish to eBay',
+          success: false,
+          ebayErrorMessage: err.message || 'Błąd publikacji',
+          hint: 'Sprawdź autoryzację eBay i dane oferty.',
+          inventoryPayload,
+          offerPayload
         });
       }
     }

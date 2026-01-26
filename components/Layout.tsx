@@ -22,6 +22,7 @@ const Layout: React.FC<LayoutProps> = ({
     { id: 'products', label: 'Produkty' },
     { id: 'pricing', label: 'Pricing' },
     { id: 'publication', label: 'Publikacja' },
+    { id: 'debug', label: 'Debug' },
     { id: 'settings', label: 'Ustawienia' },
   ];
 
