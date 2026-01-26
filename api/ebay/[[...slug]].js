@@ -61,6 +61,10 @@ export default async function handler(req, res) {
       return handleDisconnect(req, res);
     }
     
+    if (path === 'test-connection') {
+      return handleTestConnection(req, res);
+    }
+    
     // Inventory routes
     if (path.startsWith('inventory/')) {
       return handleInventory(req, res, path);
@@ -311,9 +315,13 @@ async function handleCallback(req, res) {
       tokenType: tokenData.token_type
     };
     
-    storeTokens(tokens);
+    // Note: We send tokens to frontend via postMessage
+    // Frontend will store them in localStorage
+    console.log('Tokens received successfully, sending to frontend');
     
-    console.log('Tokens stored successfully');
+    // Encode tokens as base64 JSON for safe transfer
+    const tokensJson = JSON.stringify(tokens);
+    const tokensBase64 = Buffer.from(tokensJson).toString('base64');
     
     return res.send(`
       <!DOCTYPE html>
@@ -324,10 +332,17 @@ async function handleCallback(req, res) {
         <p>Your eBay account has been connected.</p>
         <p>This window will close automatically...</p>
         <script>
-          setTimeout(() => {
-            window.opener?.postMessage({ type: 'EBAY_AUTH_SUCCESS' }, '*');
-            window.close();
-          }, 1500);
+          const tokensBase64 = '${tokensBase64}';
+          const tokensJson = atob(tokensBase64);
+          const tokens = JSON.parse(tokensJson);
+          
+          // Send tokens to parent window
+          window.opener?.postMessage({ 
+            type: 'EBAY_AUTH_SUCCESS',
+            tokens: tokens
+          }, '*');
+          
+          setTimeout(() => window.close(), 1500);
         </script>
       </body>
       </html>
@@ -358,6 +373,60 @@ async function handleCallback(req, res) {
 async function handleDisconnect(req, res) {
   clearTokens();
   return res.status(200).json({ success: true, message: 'Disconnected from eBay' });
+}
+
+// Handler: Test Connection with eBay API
+async function handleTestConnection(req, res) {
+  // Get token from Authorization header (sent from frontend localStorage)
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      message: 'Brak tokenu autoryzacji',
+      hint: 'Zaloguj się ponownie do eBay'
+    });
+  }
+  
+  const accessToken = authHeader.replace('Bearer ', '');
+  const { environment } = getEbayCredentials();
+  const apiBase = getEbayBaseUrl(environment);
+  
+  try {
+    // Test call - get default category tree for EBAY_DE
+    const response = await fetch(`${apiBase}/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id=EBAY_DE`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json'
+      }
+    });
+    
+    const data = await response.json();
+    
+    if (response.ok) {
+      return res.status(200).json({
+        success: true,
+        message: `Połączenie działa! Category Tree ID: ${data.categoryTreeId}`,
+        debug: {
+          categoryTreeId: data.categoryTreeId,
+          categoryTreeVersion: data.categoryTreeVersion
+        }
+      });
+    } else {
+      return res.status(200).json({
+        success: false,
+        message: data.errors?.[0]?.message || 'Błąd API eBay',
+        hint: 'Token mógł wygasnąć - spróbuj połączyć się ponownie',
+        debug: data
+      });
+    }
+  } catch (error) {
+    return res.status(200).json({
+      success: false,
+      message: `Błąd: ${error.message}`,
+      hint: 'Sprawdź połączenie internetowe'
+    });
+  }
 }
 
 // Handler: Refresh Token

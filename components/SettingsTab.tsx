@@ -7,13 +7,12 @@ interface SettingsTabProps {
   setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
 }
 
-interface OAuthStatus {
-  connected: boolean;
-  connectedAt: string | null;
-  clientId: string | null;
-  error: string | null;
-  hasRefreshToken: boolean;
-  redirectUri: string;
+interface EbayTokens {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  refreshExpiresAt: number;
+  tokenType: string;
 }
 
 interface TestResult {
@@ -26,12 +25,42 @@ interface TestResult {
 // API Base - relative URL works both locally (with Vite proxy) and on Vercel
 const API_BASE = '/api/ebay';
 
+// LocalStorage key for eBay tokens
+const EBAY_TOKENS_KEY = 'ebay_oauth_tokens';
+
+// Helper functions to manage tokens in localStorage
+const getStoredTokens = (): EbayTokens | null => {
+  const stored = localStorage.getItem(EBAY_TOKENS_KEY);
+  if (!stored) return null;
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return null;
+  }
+};
+
+const storeTokens = (tokens: EbayTokens) => {
+  localStorage.setItem(EBAY_TOKENS_KEY, JSON.stringify(tokens));
+};
+
+const clearStoredTokens = () => {
+  localStorage.removeItem(EBAY_TOKENS_KEY);
+};
+
+// Check if tokens are valid (not expired)
+const isTokenValid = (tokens: EbayTokens | null): boolean => {
+  if (!tokens) return false;
+  // Token is valid if it expires more than 5 minutes from now
+  return tokens.expiresAt > Date.now() + (5 * 60 * 1000);
+};
+
 const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
   const [testResult, setTestResult] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   
   // OAuth state
-  const [oauthStatus, setOauthStatus] = useState<OAuthStatus | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [ebayTestResult, setEbayTestResult] = useState<TestResult | null>(null);
   const [isTestingEbay, setIsTestingEbay] = useState(false);
@@ -43,88 +72,64 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
     }));
   };
 
-  // Pobierz status OAuth przy starcie
+  // Check localStorage for tokens on mount
   useEffect(() => {
-    checkOAuthStatus();
+    checkLocalTokens();
     
-    // Nasłuchuj na komunikaty z okna OAuth
+    // Listen for OAuth success messages from popup
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'EBAY_OAUTH_SUCCESS') {
-        console.log('OAuth success message received');
-        checkOAuthStatus();
+      if (event.data?.type === 'EBAY_AUTH_SUCCESS' && event.data?.tokens) {
+        console.log('OAuth success - storing tokens');
+        storeTokens(event.data.tokens);
+        checkLocalTokens();
+        setIsConnecting(false);
+      } else if (event.data?.type === 'EBAY_AUTH_ERROR') {
+        console.error('OAuth error:', event.data.error);
+        setIsConnecting(false);
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  const checkOAuthStatus = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/oauth/status`);
-      const data = await response.json();
-      setOauthStatus(data);
-    } catch (error) {
-      console.error('Failed to check OAuth status:', error);
-    }
+  const checkLocalTokens = () => {
+    const tokens = getStoredTokens();
+    const valid = isTokenValid(tokens);
+    setIsConnected(valid);
+    setTokenExpiresAt(tokens?.expiresAt || null);
   };
 
   const handleConnectEbay = async () => {
-    if (!settings.ebay.clientId || !settings.ebay.clientSecret) {
-      alert('Wprowadź Client ID i Client Secret przed połączeniem.');
-      return;
-    }
-    
     setIsConnecting(true);
     
     try {
-      // 1. Zapisz credentials
-      const prepareResponse = await fetch(`${API_BASE}/oauth/prepare`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientId: settings.ebay.clientId,
-          clientSecret: settings.ebay.clientSecret
-        })
-      });
+      // Get state for CSRF protection
+      const prepareResponse = await fetch(`${API_BASE}/oauth/prepare`);
+      const { state } = await prepareResponse.json();
       
-      if (!prepareResponse.ok) {
-        throw new Error('Nie udało się zapisać credentials');
-      }
-      
-      // 2. Pobierz URL autoryzacji (wysyłamy też secret bo teraz jedno wywołanie)
-      const authUrlResponse = await fetch(`${API_BASE}/oauth/auth-url`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientId: settings.ebay.clientId,
-          clientSecret: settings.ebay.clientSecret
-        })
-      });
-      
+      // Get auth URL
+      const authUrlResponse = await fetch(`${API_BASE}/oauth/auth-url?state=${state}`);
       const authData = await authUrlResponse.json();
       
       if (!authData.authUrl) {
-        throw new Error('Nie udało się wygenerować URL autoryzacji');
+        throw new Error(authData.error || 'Nie udało się wygenerować URL autoryzacji');
       }
       
-      // 3. Otwórz okno autoryzacji
+      // Open OAuth popup
       const authWindow = window.open(authData.authUrl, 'ebay_oauth', 'width=600,height=700');
       
-      // 4. Sprawdzaj status co 2 sekundy
-      const checkInterval = setInterval(async () => {
-        await checkOAuthStatus();
-        
-        // Jeśli połączono lub okno zamknięte, zatrzymaj sprawdzanie
-        if (oauthStatus?.connected || authWindow?.closed) {
-          clearInterval(checkInterval);
+      // Monitor popup closing
+      const checkClosed = setInterval(() => {
+        if (authWindow?.closed) {
+          clearInterval(checkClosed);
           setIsConnecting(false);
-          await checkOAuthStatus();
+          checkLocalTokens();
         }
-      }, 2000);
+      }, 1000);
       
-      // Timeout po 5 minutach
+      // Timeout after 5 minutes
       setTimeout(() => {
-        clearInterval(checkInterval);
+        clearInterval(checkClosed);
         setIsConnecting(false);
       }, 5 * 60 * 1000);
       
@@ -137,32 +142,43 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
 
   const handleDisconnectEbay = async () => {
     if (!confirm('Czy na pewno chcesz rozłączyć z eBay?')) return;
-    
-    try {
-      await fetch(`${API_BASE}/oauth/disconnect`, { method: 'POST' });
-      await checkOAuthStatus();
-      setEbayTestResult(null);
-    } catch (error) {
-      console.error('Disconnect error:', error);
-    }
+    clearStoredTokens();
+    setIsConnected(false);
+    setTokenExpiresAt(null);
+    setEbayTestResult(null);
   };
 
   const handleTestEbay = async () => {
     setIsTestingEbay(true);
     setEbayTestResult(null);
     
+    const tokens = getStoredTokens();
+    if (!tokens) {
+      setEbayTestResult({
+        success: false,
+        message: 'Nie jesteś połączony z eBay',
+        hint: 'Kliknij "Połącz z eBay" aby się zalogować'
+      });
+      setIsTestingEbay(false);
+      return;
+    }
+    
     try {
-      const response = await fetch(`${API_BASE}/test`, {
+      // Test API call - get default category tree
+      const response = await fetch(`${API_BASE}/test-connection`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokens.accessToken}`
+        }
       });
       const result = await response.json();
       setEbayTestResult(result);
     } catch (error: any) {
       setEbayTestResult({
         success: false,
-        message: `Błąd połączenia z backendem: ${error.message}`,
-        hint: "Upewnij się że backend działa na localhost:3001"
+        message: `Błąd: ${error.message}`,
+        hint: "Sprawdź połączenie internetowe"
       });
     }
     
@@ -185,58 +201,22 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
            <span className="p-2 bg-blue-100 rounded-xl text-blue-600">🔌</span> eBay API (OAuth)
         </h2>
         <div className="space-y-4">
-          {/* Client ID */}
-          <div>
-            <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Client ID (App ID)</label>
-            <input 
-              type="text" 
-              value={settings.ebay.clientId} 
-              onChange={(e) => updateSection('ebay', { clientId: e.target.value })} 
-              className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono"
-              disabled={oauthStatus?.connected}
-            />
-          </div>
-          
-          {/* Client Secret */}
-          <div>
-            <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Client Secret (Cert ID)</label>
-            <input 
-              type="password" 
-              value={settings.ebay.clientSecret} 
-              onChange={(e) => updateSection('ebay', { clientSecret: e.target.value })} 
-              className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono"
-              disabled={oauthStatus?.connected}
-            />
-          </div>
-          
-          {/* Redirect URI Info */}
-          {oauthStatus?.redirectUri && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs">
-              <p className="font-bold text-amber-800 mb-1">⚠️ WAŻNE - Dodaj Redirect URI w eBay Developer Portal:</p>
-              <code className="block bg-white px-2 py-1 rounded text-amber-700 break-all">
-                {oauthStatus.redirectUri}
-              </code>
-              <p className="text-amber-600 mt-1">
-                Ścieżka: eBay Developer → Your App → OAuth Redirect URL
-              </p>
-            </div>
-          )}
           
           {/* Status połączenia */}
           <div className="pt-2">
             <div className={`flex justify-between items-center p-3 rounded-2xl border ${
-              oauthStatus?.connected 
+              isConnected 
                 ? 'bg-green-50 border-green-200' 
                 : 'bg-slate-50 border-slate-100'
             }`}>
                <div>
                  <span className="text-[10px] font-black uppercase text-slate-400 block">Status</span>
-                 <span className={`text-sm font-bold ${oauthStatus?.connected ? 'text-green-700' : 'text-slate-500'}`}>
-                   {oauthStatus?.connected ? '✅ Połączono' : '⚪ Nie połączono'}
+                 <span className={`text-sm font-bold ${isConnected ? 'text-green-700' : 'text-slate-500'}`}>
+                   {isConnected ? '✅ Połączono z eBay' : '⚪ Nie połączono'}
                  </span>
-                 {oauthStatus?.connectedAt && (
+                 {tokenExpiresAt && (
                    <span className="text-[10px] text-slate-400 block">
-                     {new Date(oauthStatus.connectedAt).toLocaleString('pl-PL')}
+                     Token wygasa: {new Date(tokenExpiresAt).toLocaleString('pl-PL')}
                    </span>
                  )}
                </div>
@@ -247,19 +227,12 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
             </div>
           </div>
           
-          {/* Error message */}
-          {oauthStatus?.error && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700">
-              ❌ {oauthStatus.error}
-            </div>
-          )}
-          
           {/* Przyciski OAuth */}
           <div className="flex gap-2">
-            {!oauthStatus?.connected ? (
+            {!isConnected ? (
               <button 
                 onClick={handleConnectEbay} 
-                disabled={isConnecting || !settings.ebay.clientId || !settings.ebay.clientSecret} 
+                disabled={isConnecting} 
                 className={`flex-1 font-bold py-3 rounded-xl text-sm transition-all shadow-sm ${
                   isConnecting 
                     ? 'bg-blue-200 text-blue-500 cursor-wait' 
@@ -281,11 +254,11 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
           {/* Test połączenia */}
           <button 
             onClick={handleTestEbay} 
-            disabled={isTestingEbay || !oauthStatus?.connected} 
+            disabled={isTestingEbay || !isConnected} 
             className={`w-full font-bold py-2 rounded-xl text-sm transition-all border ${
               isTestingEbay 
                 ? 'bg-slate-100 text-slate-400 cursor-wait' 
-                : oauthStatus?.connected
+                : isConnected
                   ? 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700'
                   : 'bg-slate-100 text-slate-400 cursor-not-allowed'
             }`}
