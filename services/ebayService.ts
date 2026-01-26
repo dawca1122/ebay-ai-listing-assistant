@@ -330,12 +330,17 @@ export interface MarketPriceResult {
 }
 
 export const checkMarketPrices = async (ean?: string, keywords?: string): Promise<MarketPriceResult> => {
+  console.log('[checkMarketPrices] Starting with:', { ean, keywords });
+  
   let response = await fetchWithCredentials(`${API_BASE}/market/price-check`, {
     method: 'POST',
     body: JSON.stringify({ ean, keywords }),
   });
   
+  console.log('[checkMarketPrices] Response status:', response.status);
+  
   if (response.status === 401) {
+    console.log('[checkMarketPrices] Got 401, trying with localStorage token');
     const accessToken = getAccessToken();
     if (accessToken) {
       response = await fetch(`${API_BASE}/market/price-check`, {
@@ -346,15 +351,19 @@ export const checkMarketPrices = async (ean?: string, keywords?: string): Promis
         },
         body: JSON.stringify({ ean, keywords }),
       });
+      console.log('[checkMarketPrices] Retry response status:', response.status);
     }
   }
   
   if (!response.ok) {
     const error = await response.json();
+    console.error('[checkMarketPrices] Error:', error);
     throw new Error(error.error || `HTTP ${response.status}`);
   }
   
-  return await response.json();
+  const result = await response.json();
+  console.log('[checkMarketPrices] Success:', { query: result.query, count: result.items?.length, stats: result.statistics });
+  return result;
 };
 
 // ============================================
