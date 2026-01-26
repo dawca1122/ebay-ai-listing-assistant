@@ -814,12 +814,6 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
       return;
     }
 
-    const tokens = getStoredTokens();
-    if (!tokens) {
-      onError('Brak tokenu eBay');
-      return;
-    }
-
     setIsProcessing(true);
     setProcessingStep('Sprawdzanie cen konkurencji na eBay.de...');
 
@@ -828,39 +822,22 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         // Search by EAN first, fallback to title
         const searchQuery = product.ean || product.title || product.inputName;
         
-        const response = await fetch(`${API_BASE}/browse/search?q=${encodeURIComponent(searchQuery)}&filter=buyingOptions:{FIXED_PRICE}`, {
-          headers: { 'Authorization': `Bearer ${tokens.accessToken}` }
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-        const items = data.itemSummaries || [];
-
-        // Extract prices
-        const competitorPrices = items.slice(0, 10).map((item: any) => ({
-          price: parseFloat(item.price?.value || 0),
-          shipping: parseFloat(item.shippingOptions?.[0]?.shippingCost?.value || 0),
-          total: parseFloat(item.price?.value || 0) + parseFloat(item.shippingOptions?.[0]?.shippingCost?.value || 0),
-          seller: item.seller?.username || 'unknown'
-        }));
-
-        // Calculate min and median
-        const totals = competitorPrices.map((c: any) => c.total).filter((t: number) => t > 0).sort((a: number, b: number) => a - b);
-        const minTotal = totals[0] || 0;
-        const medianTotal = totals.length > 0 ? totals[Math.floor(totals.length / 2)] : 0;
+        const result = await checkMarketPrices(product.ean, searchQuery);
 
         // Calculate recommended price
         const { undercutMode, undercutBy, minGrossPrice } = settings.pricingRules;
-        let recommendedPrice = undercutMode === 'median' ? medianTotal : minTotal;
+        let recommendedPrice = undercutMode === 'median' ? result.statistics.median : result.statistics.min;
         recommendedPrice = Math.max(recommendedPrice - undercutBy, minGrossPrice);
 
         updateProduct(product.id, {
-          competitorPrices,
-          minTotalCompetition: minTotal,
-          medianTotalCompetition: medianTotal,
+          competitorPrices: result.items.map(i => ({
+            price: i.price,
+            shipping: i.shipping,
+            total: i.total,
+            seller: i.seller
+          })),
+          minTotalCompetition: result.statistics.min,
+          medianTotalCompetition: result.statistics.median,
           pricingRuleApplied: `${undercutMode} - ${undercutBy}€`,
           status: ProductStatus.PRICE_CHECK_DONE,
           lastError: ''
@@ -873,10 +850,10 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           stage: LogStage.PRICE_CHECK,
           action: 'Check Prices',
           success: true,
-          requestUrl: `${API_BASE}/browse/search?q=${encodeURIComponent(searchQuery)}`,
-          requestMethod: 'GET',
-          responseStatus: response.status,
-          responseBody: { count: competitorPrices.length, minTotal, medianTotal }
+          requestUrl: `${API_BASE}/market/price-check`,
+          requestMethod: 'POST',
+          responseStatus: 200,
+          responseBody: { count: result.items.length, min: result.statistics.min, median: result.statistics.median }
         });
 
       } catch (err: any) {
@@ -1032,12 +1009,6 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
       return;
     }
 
-    const tokens = getStoredTokens();
-    if (!tokens) {
-      onError('Brak tokenu eBay');
-      return;
-    }
-
     setIsProcessing(true);
 
     for (const product of selected) {
@@ -1066,9 +1037,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
 
         const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(product.sku)}`, {
           method: 'PUT',
+          credentials: 'include',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${tokens.accessToken}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify(inventoryPayload)
         });
@@ -1102,9 +1073,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
 
         const offerResponse = await fetch(`${API_BASE}/offer`, {
           method: 'POST',
+          credentials: 'include',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${tokens.accessToken}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify(offerPayload)
         });
@@ -1119,9 +1090,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         // Step 3: Publish Offer
         const publishResponse = await fetch(`${API_BASE}/offer/${offerId}/publish`, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${tokens.accessToken}`
-          }
+          credentials: 'include'
         });
 
         const publishData = await publishResponse.json();
