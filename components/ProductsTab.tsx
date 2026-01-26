@@ -85,6 +85,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
   // Research data storage (per product)
   const [productResearchData, setProductResearchData] = useState<Record<string, string>>({});
   
+  // Research preview modal
+  const [researchPreviewId, setResearchPreviewId] = useState<string | null>(null);
+  
   // Description preview modal
   const [previewProductId, setPreviewProductId] = useState<string | null>(null);
   const [editingDescription, setEditingDescription] = useState<string>('');
@@ -1566,12 +1569,30 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                         />
                       </td>
                       <td className="px-3 py-2">
-                        <input 
-                          type="text"
-                          value={p.inputName}
-                          onChange={(e) => updateProduct(p.id, { inputName: e.target.value })}
-                          className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs"
-                        />
+                        <div className="flex gap-1">
+                          <input 
+                            type="text"
+                            value={p.inputName}
+                            onChange={(e) => updateProduct(p.id, { inputName: e.target.value })}
+                            className="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs"
+                          />
+                          <button
+                            onClick={() => handleResearchProduct(p.id)}
+                            className={`px-1.5 py-1 rounded text-xs hover:bg-cyan-200 ${productResearchData[p.id] ? 'bg-cyan-200 text-cyan-800' : 'bg-cyan-100 text-cyan-600'}`}
+                            title="🔬 Research produktu"
+                          >
+                            🔬
+                          </button>
+                          {productResearchData[p.id] && (
+                            <button
+                              onClick={() => setResearchPreviewId(p.id)}
+                              className="px-1.5 py-1 bg-green-100 text-green-600 rounded text-xs hover:bg-green-200"
+                              title="👁️ Podgląd wyników Research"
+                            >
+                              👁️
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-1">
@@ -1840,6 +1861,68 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
               >
                 ✅ Importuj {importPreview.rows.length} wierszy
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Research Preview Modal */}
+      {researchPreviewId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setResearchPreviewId(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[90vw] max-w-4xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 bg-gradient-to-r from-cyan-600 to-blue-600 text-white flex justify-between items-center">
+              <h3 className="font-bold text-lg">🔬 Wyniki Research AI</h3>
+              <button onClick={() => setResearchPreviewId(null)} className="text-2xl hover:text-cyan-200">×</button>
+            </div>
+            
+            <div className="p-4 bg-slate-50 border-b border-slate-200">
+              <div className="flex items-center gap-4 text-sm">
+                <span className="font-bold text-slate-600">Produkt:</span>
+                <span className="text-slate-800">{products.find(p => p.id === researchPreviewId)?.inputName}</span>
+                <span className="text-slate-400">|</span>
+                <span className="font-bold text-slate-600">EAN:</span>
+                <span className="font-mono text-slate-800">{products.find(p => p.id === researchPreviewId)?.ean}</span>
+              </div>
+            </div>
+            
+            <div className="p-6 overflow-auto max-h-[60vh]">
+              {productResearchData[researchPreviewId] ? (
+                <div className="prose prose-sm max-w-none">
+                  <pre className="whitespace-pre-wrap text-sm text-slate-700 bg-white p-4 rounded-lg border border-slate-200 font-sans leading-relaxed">
+                    {productResearchData[researchPreviewId]}
+                  </pre>
+                </div>
+              ) : (
+                <div className="text-center py-12 text-slate-400">
+                  <p className="text-4xl mb-4">🔍</p>
+                  <p>Brak danych Research dla tego produktu</p>
+                  <p className="text-sm mt-2">Kliknij przycisk 🔬 przy nazwie produktu aby uruchomić Research</p>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center">
+              <div className="text-xs text-slate-500">
+                💡 Te dane są używane przez agentów Title i Description
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    if (researchPreviewId) {
+                      handleResearchProduct(researchPreviewId);
+                    }
+                  }}
+                  className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-xs font-bold hover:bg-cyan-700"
+                >
+                  🔄 Odśwież Research
+                </button>
+                <button
+                  onClick={() => setResearchPreviewId(null)}
+                  className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300"
+                >
+                  Zamknij
+                </button>
+              </div>
             </div>
           </div>
         </div>
