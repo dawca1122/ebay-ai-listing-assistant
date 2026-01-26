@@ -41,7 +41,7 @@ const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, 
         status: ProductStatus.PUBLISHED,
         ebayOfferId: result.offerId,
         ebayItemId: result.itemId,
-        errorMessage: ''
+        lastError: ''
       });
       
       alert(`Sukces! Produkt wystawiony pod ID: ${result.itemId}`);
@@ -50,7 +50,7 @@ const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, 
       onError(msg);
       updateProduct(id, {
         status: ProductStatus.ERROR,
-        errorMessage: `Publikacja: ${msg}`
+        lastError: `Publikacja: ${msg}`
       });
     } finally {
       setPublishingId(null);
@@ -103,7 +103,7 @@ const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, 
                       <span className="text-[10px] font-mono text-slate-400 mt-1">EAN: {product.ean}</span>
                     </div>
                     <div className="text-right">
-                      <span className="text-slate-900 font-black text-2xl">{product.finalPrice.toFixed(2)} €</span>
+                      <span className="text-slate-900 font-black text-2xl">{product.priceGross.toFixed(2)} €</span>
                       <p className="text-[10px] text-slate-400 font-bold uppercase">Cena Brutto</p>
                     </div>
                   </div>
@@ -173,7 +173,7 @@ const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, 
                 </div>
                 <div className="flex items-center gap-3 w-full md:w-auto">
                   <div className="text-right mr-4 hidden md:block">
-                    <span className="text-sm font-black text-slate-900">{p.finalPrice.toFixed(2)} €</span>
+                    <span className="text-sm font-black text-slate-900">{p.priceGross.toFixed(2)} €</span>
                     <p className="text-[8px] font-black text-slate-400 uppercase">Live Price</p>
                   </div>
                   <button 

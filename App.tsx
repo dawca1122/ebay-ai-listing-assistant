@@ -5,36 +5,35 @@ import ProductsTab from './components/ProductsTab';
 import PricingTab from './components/PricingTab';
 import PublicationTab from './components/PublicationTab';
 import SettingsTab from './components/SettingsTab';
-import { Product, AppSettings } from './types';
+import { Product, AppSettings, EBAY_DE_CONSTANTS } from './types';
 
 const INITIAL_SETTINGS: AppSettings = {
   ebay: {
-    clientId: '', // Teraz w backendzie
-    clientSecret: '', // Teraz w backendzie
-    refreshToken: '', // Teraz w backendzie
-    marketplace: 'EBAY_DE'
+    clientId: '',
+    clientSecret: '',
+    ruName: '',                          // RuName dla OAuth
+    marketplace: EBAY_DE_CONSTANTS.MARKETPLACE_ID
   },
   policies: {
-    fulfillmentId: '',
-    paymentId: '',
-    returnId: '',
-    locationPostalCode: '',
-    merchantLocationKey: 'default' // Domyślny klucz lokalizacji
+    paymentPolicyId: '',
+    fulfillmentPolicyId: '',
+    returnPolicyId: '',
+    merchantLocationKey: ''
   },
   geminiKey: process.env.API_KEY || '',
   aiRules: {
-    systemPrompt: 'You are a professional eBay listing specialist.',
+    systemPrompt: 'You are a professional eBay listing specialist for German market (eBay.de). Write in German.',
     skuRules: 'Format: EB-[BRAND]-[MODEL]-[YEAR]',
-    titleRules: 'Max 80 characters, include EAN at the end.',
-    descriptionRules: 'HTML based, clean lists, German language.',
-    forbiddenWords: 'cheap, best, free shipping'
+    titleRules: 'Max 80 characters, include brand and EAN, German language.',
+    descriptionRules: 'HTML based, clean lists, German language, professional tone.',
+    forbiddenWords: 'cheap, best, free shipping, billig, gratis'
   },
   pricingRules: {
-    undercut: 0.01,
-    priceFloor: 5.00,
-    maxDeliveryDays: 5,
-    ignoreOutliers: true
-  }
+    undercutMode: 'lowest',
+    undercutBy: 0.01,
+    minGrossPrice: 1.00
+  },
+  vatRate: EBAY_DE_CONSTANTS.VAT_RATE    // 19% VAT dla DE
 };
 
 const App: React.FC = () => {
@@ -65,7 +64,20 @@ const App: React.FC = () => {
     setTimeout(() => setLastError(null), 8000);
   };
 
-  const ebayStatus = settings.ebay.refreshToken.length > 20;
+  // Check eBay connection from localStorage tokens
+  const getEbayConnectionStatus = (): boolean => {
+    const stored = localStorage.getItem('ebay_oauth_tokens');
+    if (!stored) return false;
+    try {
+      const tokens = JSON.parse(stored);
+      // Token valid if expires more than 5 min from now
+      return tokens.expiresAt > Date.now() + (5 * 60 * 1000);
+    } catch {
+      return false;
+    }
+  };
+
+  const ebayStatus = getEbayConnectionStatus();
   const geminiStatus = settings.geminiKey.length > 20;
 
   const renderTab = () => {

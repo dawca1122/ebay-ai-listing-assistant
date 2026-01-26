@@ -27,9 +27,9 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
   };
 
   const calculateSuggestedPrice = (minTotal: number, rules: typeof settings.pricingRules) => {
-    let price = minTotal - rules.undercut;
-    if (price < rules.priceFloor) {
-      price = rules.priceFloor;
+    let price = minTotal - rules.undercutBy;
+    if (price < rules.minGrossPrice) {
+      price = rules.minGrossPrice;
     }
     return parseFloat(price.toFixed(2));
   };
@@ -45,9 +45,9 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
       updateProduct(id, {
         minTotalCompetition: data.minTotal,
         medianTotalCompetition: data.medianTotal,
-        suggestedPrice: newSuggested,
-        finalPrice: newSuggested,
-        pricingRuleApplied: `Undercut -${settings.pricingRules.undercut}`,
+        priceGross: newSuggested,
+        priceNet: parseFloat((newSuggested / 1.19).toFixed(2)),
+        pricingRuleApplied: `Undercut -${settings.pricingRules.undercutBy}`,
         pricingWarnings: data.warnings
       });
     } catch (err: any) {
@@ -109,7 +109,7 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
                         <div className="text-[10px] text-slate-400 font-mono">EAN: {p.ean}</div>
                         <div className="text-[9px] text-blue-500 font-bold">SKU: {p.sku || '---'}</div>
                       </td>
-                      <td className="px-4 py-4 text-slate-500 italic max-w-[120px] truncate">{p.categoryName || '---'}</td>
+                      <td className="px-4 py-4 text-slate-500 italic max-w-[120px] truncate">{p.ebayCategoryName || '---'}</td>
                       <td className="px-4 py-4 text-center">
                         <span className="font-bold text-slate-700">{p.minTotalCompetition ? `${p.minTotalCompetition}€` : '---'}</span>
                       </td>
@@ -119,8 +119,11 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
                       <td className="px-4 py-4 text-center">
                         <input 
                           type="number" 
-                          value={p.finalPrice}
-                          onChange={(e) => updateProduct(p.id, { finalPrice: parseFloat(e.target.value) || 0 })}
+                          value={p.priceGross}
+                          onChange={(e) => {
+                            const gross = parseFloat(e.target.value) || 0;
+                            updateProduct(p.id, { priceGross: gross, priceNet: parseFloat((gross / 1.19).toFixed(2)) });
+                          }}
                           className="w-20 px-2 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 font-black text-center outline-none"
                         />
                       </td>
@@ -163,42 +166,36 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
               <input 
                 type="number"
                 step="0.01"
-                value={settings.pricingRules.undercut}
-                onChange={(e) => updateGlobalRules({ undercut: parseFloat(e.target.value) || 0 })}
+                value={settings.pricingRules.undercutBy}
+                onChange={(e) => updateGlobalRules({ undercutBy: parseFloat(e.target.value) || 0 })}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
               />
               <p className="mt-1 text-[9px] text-slate-400 italic">Kwota odejmowana od min ceny konkurencji.</p>
             </div>
 
             <div>
-              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Price Floor (€)</label>
+              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Cena Minimalna Brutto (€)</label>
               <input 
                 type="number"
-                value={settings.pricingRules.priceFloor}
-                onChange={(e) => updateGlobalRules({ priceFloor: parseFloat(e.target.value) || 0 })}
+                value={settings.pricingRules.minGrossPrice}
+                onChange={(e) => updateGlobalRules({ minGrossPrice: parseFloat(e.target.value) || 0 })}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
               />
-              <p className="mt-1 text-[9px] text-slate-400 italic">Cena minimalna, poniżej której nie schodzimy.</p>
+              <p className="mt-1 text-[9px] text-slate-400 italic">Cena minimalna brutto, poniżej której nie schodzimy.</p>
             </div>
 
             <div>
-              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Maks. Dostawa (dni)</label>
-              <input 
-                type="number"
-                value={settings.pricingRules.maxDeliveryDays}
-                onChange={(e) => updateGlobalRules({ maxDeliveryDays: parseInt(e.target.value) || 0 })}
+              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Tryb Undercut</label>
+              <select 
+                value={settings.pricingRules.undercutMode}
+                onChange={(e) => updateGlobalRules({ undercutMode: e.target.value as 'lowest' | 'median' | 'manual' })}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-              />
-            </div>
-
-            <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <input 
-                type="checkbox"
-                checked={settings.pricingRules.ignoreOutliers}
-                onChange={(e) => updateGlobalRules({ ignoreOutliers: e.target.checked })}
-                className="w-4 h-4 rounded text-blue-600"
-              />
-              <span className="text-xs font-bold text-slate-600">Ignoruj outliery (ostrzeżenie)</span>
+              >
+                <option value="lowest">Najniższa cena</option>
+                <option value="median">Mediana</option>
+                <option value="manual">Ręcznie</option>
+              </select>
+              <p className="mt-1 text-[9px] text-slate-400 italic">Wybierz sposób kalkulacji ceny.</p>
             </div>
           </div>
 

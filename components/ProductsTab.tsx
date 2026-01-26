@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Product, ProductStatus, AppSettings } from '../types';
+import { Product, ProductStatus, ProductCondition, AppSettings } from '../types';
 import { generateProductDetails, suggestCategory, generateProductTitle } from '../services/geminiService';
 
 interface ProductsTabProps {
@@ -22,29 +22,35 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     const lines = bulkInput.split('\n').filter(line => line.trim() !== '');
     const newItems: Product[] = [];
 
+    // Format: NAZWA | EAN | KATEGORIA_SKLEPU | ILOŚĆ
     lines.forEach(line => {
       const parts = line.split('|').map(p => p.trim());
       const name = parts[0] || '';
       const ean = parts[1] || '';
+      const shopCategory = parts[2] || '';
+      const qty = parseInt(parts[3]) || 1;
 
       if (name && ean) {
         newItems.push({
           id: crypto.randomUUID().split('-')[0],
           ean: ean,
           inputName: name,
+          shopCategory: shopCategory,
+          quantity: qty,
+          condition: ProductCondition.NEW,
           sku: '',
           title: '',
           descriptionHtml: '',
           keywords: '',
-          categoryId: '',
-          categoryName: '',
-          suggestedPrice: 0,
-          finalPrice: 0,
-          quantity: 1,
+          ebayCategoryId: '',
+          ebayCategoryName: '',
+          competitorPrices: [],
+          priceGross: 0,
+          priceNet: 0,
           status: ProductStatus.DRAFT,
           ebayOfferId: '',
           ebayItemId: '',
-          errorMessage: '',
+          lastError: '',
           createdAt: Date.now()
         });
       }
@@ -54,7 +60,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
       setProducts(prev => [...newItems, ...prev]);
       setBulkInput('');
     } else {
-      onError("Format błędu. Użyj: NAZWA | EAN");
+      onError("Format błędu. Użyj: NAZWA | EAN | KATEGORIA | ILOŚĆ");
     }
   };
 
@@ -81,7 +87,15 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     setIsGenerating(true);
     try {
       const details = await generateProductDetails(settings.geminiKey, p.inputName, p.ean, aiInstructions);
-      updateProduct(id, { ...details, finalPrice: details.suggestedPrice || p.finalPrice });
+      // Mapuj stare pola na nowe
+      updateProduct(id, { 
+        sku: details.sku,
+        title: details.title,
+        descriptionHtml: details.descriptionHtml,
+        keywords: details.keywords,
+        ebayCategoryId: details.categoryId,
+        ebayCategoryName: details.categoryName
+      });
     } catch (err: any) {
       onError(err.message || "Błąd AI.");
     } finally {
@@ -111,7 +125,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
       const results = await suggestCategory(settings.geminiKey, p.inputName);
       if (results.length > 0) {
         const top1 = results[0];
-        updateProduct(id, { categoryId: top1.id, categoryName: `(${top1.confidence}) ${top1.name}` });
+        updateProduct(id, { ebayCategoryId: top1.id, ebayCategoryName: `(${top1.confidence}) ${top1.name}` });
       }
     } catch (err: any) {
       onError(err.message || "Błąd kategorii.");
@@ -130,17 +144,17 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     if (!p.sku) errors.push("Brak SKU");
     if (!p.title || p.title.length > 80) errors.push("Tytuł (1-80 znaków)");
     if (!p.descriptionHtml) errors.push("Brak Opisu");
-    if (!p.categoryId) errors.push("Brak Kategorii");
-    if (p.finalPrice <= 0) errors.push("Cena <= 0");
+    if (!p.ebayCategoryId) errors.push("Brak Kategorii eBay");
+    if (p.priceGross <= 0) errors.push("Cena <= 0");
     
-    if (!settings.policies.fulfillmentId || !settings.policies.paymentId || !settings.policies.returnId || !settings.policies.merchantLocationKey) {
-      errors.push("Brak kompletnych polityk/klucza lokalizacji w Ustawieniach");
+    if (!settings.policies.fulfillmentPolicyId || !settings.policies.paymentPolicyId || !settings.policies.returnPolicyId || !settings.policies.merchantLocationKey) {
+      errors.push("Brak kompletnych polityk w Ustawieniach");
     }
 
     if (errors.length > 0) {
-      updateProduct(id, { status: ProductStatus.ERROR, errorMessage: errors.join(", ") });
+      updateProduct(id, { status: ProductStatus.ERROR, lastError: errors.join(", ") });
     } else {
-      updateProduct(id, { status: ProductStatus.READY, errorMessage: "" });
+      updateProduct(id, { status: ProductStatus.READY, lastError: "" });
     }
   };
 
@@ -256,7 +270,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
               {selectedProduct.status === ProductStatus.ERROR && (
                 <div className="bg-red-50 border border-red-100 text-red-700 p-4 rounded-2xl text-[10px] flex items-start gap-3">
                   <span className="text-sm">⚠️</span>
-                  <div className="font-bold leading-relaxed">{selectedProduct.errorMessage}</div>
+                  <div className="font-bold leading-relaxed">{selectedProduct.lastError}</div>
                 </div>
               )}
               

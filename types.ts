@@ -1,25 +1,38 @@
 
 export enum ProductStatus {
-  DRAFT = 'DRAFT',
-  PRICING = 'PRICING',
-  READY = 'READY',
-  PUBLISHED = 'PUBLISHED',
-  ERROR = 'ERROR'
+  DRAFT = 'DRAFT',           // Nowy, nic nie zrobione
+  PRICING = 'PRICING',       // Trwa price-check
+  READY = 'READY',           // Gotowy do publikacji
+  PUBLISHED = 'PUBLISHED',   // Opublikowany na eBay
+  ERROR = 'ERROR'            // Błąd
 }
 
-export interface EbayPolicies {
-  fulfillmentId: string;
-  paymentId: string;
-  returnId: string;
-  locationPostalCode: string;
-  merchantLocationKey: string; // Kluczowy dla Inventory API
+export enum ProductCondition {
+  NEW = 'NEW',
+  USED = 'USED',
+  REFURBISHED = 'REFURBISHED'
 }
+
+// ============ USTAWIENIA GLOBALNE ============
 
 export interface EbayCredentials {
   clientId: string;
   clientSecret: string;
-  refreshToken: string;
-  marketplace: string;
+  ruName: string;              // RuName dla OAuth (nie URL!)
+  marketplace: string;         // EBAY_DE (stałe)
+}
+
+export interface EbayPolicies {
+  paymentPolicyId: string;
+  fulfillmentPolicyId: string;
+  returnPolicyId: string;
+  merchantLocationKey: string;
+}
+
+export interface PricingRules {
+  undercutMode: 'lowest' | 'median' | 'manual';
+  undercutBy: number;          // np. 0.01 EUR
+  minGrossPrice: number;       // minimalna cena brutto
 }
 
 export interface AiRules {
@@ -30,41 +43,69 @@ export interface AiRules {
   systemPrompt: string;
 }
 
-export interface PricingRules {
-  undercut: number;
-  priceFloor: number;
-  maxDeliveryDays: number;
-  ignoreOutliers: boolean;
-}
-
 export interface AppSettings {
   ebay: EbayCredentials;
   policies: EbayPolicies;
   geminiKey: string;
   aiRules: AiRules;
   pricingRules: PricingRules;
+  vatRate: number;             // 0.19 dla DE (stałe)
+}
+
+// ============ PRODUKT ============
+
+export interface CompetitorPrice {
+  price: number;
+  shipping: number;
+  total: number;
+  seller: string;
+  deliveryDays?: number;
 }
 
 export interface Product {
   id: string;
+  
+  // Dane wejściowe (wklejane)
   ean: string;
-  inputName: string;
+  inputName: string;           // productName
+  shopCategory: string;        // wewnętrzna kategoria sklepu (nie idzie do eBay)
+  quantity: number;
+  condition: ProductCondition;
+  
+  // Generowane przez AI
   sku: string;
   title: string;
   descriptionHtml: string;
   keywords: string;
-  categoryId: string;
-  categoryName: string;
-  suggestedPrice: number;
-  finalPrice: number;
-  quantity: number;
+  
+  // Kategoria eBay (AI dobiera)
+  ebayCategoryId: string;
+  ebayCategoryName: string;
+  
+  // Ceny
+  competitorPrices: CompetitorPrice[];
+  minTotalCompetition?: number;
+  medianTotalCompetition?: number;
+  priceGross: number;          // cena brutto (finalna)
+  priceNet: number;            // cena netto (priceGross / 1.19)
+  pricingRuleApplied?: string;
+  pricingWarnings?: string[];
+  
+  // Status pipeline
   status: ProductStatus;
   ebayOfferId: string;
   ebayItemId: string;
-  errorMessage: string;
+  lastError: string;
+  
+  // Meta
   createdAt: number;
-  minTotalCompetition?: number;
-  medianTotalCompetition?: number;
-  pricingRuleApplied?: string;
-  pricingWarnings?: string[];
+  images?: string[];
 }
+
+// Stałe dla EBAY_DE
+export const EBAY_DE_CONSTANTS = {
+  MARKETPLACE_ID: 'EBAY_DE',
+  VAT_RATE: 0.19,
+  CURRENCY: 'EUR',
+  CATEGORY_TREE_ID: '77'
+};

@@ -302,32 +302,31 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
       {/* Polityki i Lokalizacja */}
       <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
         <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-slate-900">
-           <span className="p-2 bg-green-100 rounded-xl text-green-600">📦</span> Polityki i Lokalizacja
+           <span className="p-2 bg-green-100 rounded-xl text-green-600">📦</span> Polityki eBay (EBAY_DE)
         </h2>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Fulfillment ID</label>
-              <input type="text" value={settings.policies.fulfillmentId} onChange={(e) => updateSection('policies', { fulfillmentId: e.target.value })} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" />
+              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Fulfillment Policy ID</label>
+              <input type="text" value={settings.policies.fulfillmentPolicyId} onChange={(e) => updateSection('policies', { fulfillmentPolicyId: e.target.value })} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" placeholder="ID polityki wysyłki" />
             </div>
             <div>
-              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Payment ID</label>
-              <input type="text" value={settings.policies.paymentId} onChange={(e) => updateSection('policies', { paymentId: e.target.value })} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" />
+              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Payment Policy ID</label>
+              <input type="text" value={settings.policies.paymentPolicyId} onChange={(e) => updateSection('policies', { paymentPolicyId: e.target.value })} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" placeholder="ID polityki płatności" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Return ID</label>
-              <input type="text" value={settings.policies.returnId} onChange={(e) => updateSection('policies', { returnId: e.target.value })} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" />
+              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Return Policy ID</label>
+              <input type="text" value={settings.policies.returnPolicyId} onChange={(e) => updateSection('policies', { returnPolicyId: e.target.value })} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" placeholder="ID polityki zwrotów" />
             </div>
             <div>
               <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Merchant Location Key</label>
-              <input type="text" value={settings.policies.merchantLocationKey} onChange={(e) => updateSection('policies', { merchantLocationKey: e.target.value })} placeholder="np. default" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" />
+              <input type="text" value={settings.policies.merchantLocationKey} onChange={(e) => updateSection('policies', { merchantLocationKey: e.target.value })} placeholder="np. warehouse-de" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" />
             </div>
           </div>
-          <div>
-            <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Kod Pocztowy (DE)</label>
-            <input type="text" value={settings.policies.locationPostalCode} onChange={(e) => updateSection('policies', { locationPostalCode: e.target.value })} placeholder="np. 10115" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" />
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
+            💡 Policy IDs znajdziesz w eBay Seller Hub → Business Policies, lub przez API Account/v1
           </div>
         </div>
       </section>
