@@ -55,8 +55,6 @@ export const GEMINI_MODELS = {
   // Preview / Experimental
   'gemini-3-flash-preview': { name: 'Gemini 3 Flash Preview', desc: 'Nowa generacja', tier: 'preview' },
   'gemini-3-pro-preview': { name: 'Gemini 3 Pro Preview', desc: 'Nowa generacja Pro', tier: 'preview' },
-  // Research
-  'deep-research-pro-preview': { name: 'Deep Research Pro', desc: 'Długie badania, raporty, bardzo dokładny', tier: 'research' },
 } as const;
 
 export type GeminiModelId = keyof typeof GEMINI_MODELS;

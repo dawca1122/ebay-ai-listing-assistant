@@ -4,7 +4,8 @@ import { Product, GeminiModelId, AiInstructions } from "../types";
 
 // Default model if not specified
 const DEFAULT_MODEL = "gemini-2.5-flash";
-const RESEARCH_MODEL = "deep-research-pro-preview";
+// Use gemini-2.5-pro for research (supports Google Search grounding)
+const RESEARCH_MODEL = "gemini-2.5-pro";
 
 export const testConnection = async (apiKey: string, model?: GeminiModelId): Promise<boolean> => {
   if (!apiKey) return false;

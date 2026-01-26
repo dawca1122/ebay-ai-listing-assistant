@@ -85,6 +85,10 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
   // Research data storage (per product)
   const [productResearchData, setProductResearchData] = useState<Record<string, string>>({});
   
+  // Description preview modal
+  const [previewProductId, setPreviewProductId] = useState<string | null>(null);
+  const [editingDescription, setEditingDescription] = useState<string>('');
+  
   // Single product manual add form
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualProduct, setManualProduct] = useState({
@@ -1684,14 +1688,12 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                             value={p.descriptionHtml ? `${p.descriptionHtml.replace(/<[^>]*>/g, '').slice(0, 30)}...` : ''}
                             readOnly
                             onClick={() => {
-                              const newDesc = prompt('Edytuj opis HTML:', p.descriptionHtml || '');
-                              if (newDesc !== null) {
-                                updateProduct(p.id, { descriptionHtml: newDesc });
-                              }
+                              setEditingDescription(p.descriptionHtml || '');
+                              setPreviewProductId(p.id);
                             }}
                             className="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs min-w-[80px] cursor-pointer hover:bg-slate-100"
                             placeholder="---"
-                            title={p.descriptionHtml || 'Kliknij aby edytować'}
+                            title="Kliknij aby otworzyć podgląd i edycję"
                           />
                           <button
                             onClick={() => handleGenerateDescription(p.id)}
@@ -1869,6 +1871,76 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
               >
                 ✅ Importuj {importPreview.rows.length} wierszy
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Description Preview Modal */}
+      {previewProductId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setPreviewProductId(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[90vw] max-w-5xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white flex justify-between items-center">
+              <h3 className="font-bold text-lg">📝 Podgląd i Edycja Opisu</h3>
+              <button onClick={() => setPreviewProductId(null)} className="text-2xl hover:text-purple-200">×</button>
+            </div>
+            
+            <div className="flex h-[70vh]">
+              {/* Left: Edit HTML */}
+              <div className="w-1/2 p-4 border-r border-slate-200 flex flex-col">
+                <label className="text-xs font-bold text-slate-600 mb-2 flex items-center gap-2">
+                  📝 Kod HTML opisu
+                </label>
+                <textarea
+                  value={editingDescription}
+                  onChange={(e) => setEditingDescription(e.target.value)}
+                  className="flex-1 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono resize-none"
+                  placeholder="Wpisz lub edytuj kod HTML opisu..."
+                />
+              </div>
+              
+              {/* Right: Preview with banner */}
+              <div className="w-1/2 p-4 flex flex-col">
+                <label className="text-xs font-bold text-slate-600 mb-2 flex items-center gap-2">
+                  👁️ Podgląd (z banerem firmowym)
+                </label>
+                <div className="flex-1 overflow-auto bg-white border border-slate-200 rounded-lg p-4">
+                  {/* Company Banner */}
+                  {settings.companyBanner && (
+                    <div 
+                      className="mb-4 border-b border-slate-200 pb-4"
+                      dangerouslySetInnerHTML={{ __html: settings.companyBanner }}
+                    />
+                  )}
+                  {/* Product Description */}
+                  <div 
+                    dangerouslySetInnerHTML={{ __html: editingDescription }}
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center">
+              <div className="text-xs text-slate-500">
+                💡 Baner firmowy jest automatycznie dodawany do każdego opisu przy publikacji
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setPreviewProductId(null)}
+                  className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300"
+                >
+                  Anuluj
+                </button>
+                <button
+                  onClick={() => {
+                    updateProduct(previewProductId, { descriptionHtml: editingDescription });
+                    setPreviewProductId(null);
+                  }}
+                  className="px-6 py-2 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700"
+                >
+                  ✅ Zapisz opis
+                </button>
+              </div>
             </div>
           </div>
         </div>
