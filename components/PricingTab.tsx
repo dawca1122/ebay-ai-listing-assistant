@@ -12,6 +12,23 @@ interface PricingTabProps {
   ebayConnected: boolean;
 }
 
+// Helper: Extract main keywords from product title (first 3-4 meaningful words)
+const extractSearchKeywords = (text: string): string => {
+  if (!text) return '';
+  
+  const cleaned = text
+    .replace(/\b\d{8,14}\b/g, '')  // Remove EAN codes
+    .replace(/\b(Neu|OVP|NEU|neu|New|new|Sealed|sealed|Original|ORIGINAL)\b/gi, '')
+    .replace(/\b\d+[hH]\b/g, '')   // Remove "32h" etc.
+    .replace(/\bIP\d+\b/gi, '')    // Remove "IP54" etc.
+    .replace(/[–—-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  const words = cleaned.split(' ').filter(w => w.length >= 2);
+  return words.slice(0, 4).join(' ') || text.split(' ').slice(0, 3).join(' ');
+};
+
 const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings, setSettings, onError, ebayConnected }) => {
   const [isChecking, setIsChecking] = useState(false);
   const pricingProducts = products.filter(p => p.status !== ProductStatus.PUBLISHED);
@@ -44,8 +61,8 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
     // Application Token - nie wymaga logowania użytkownika
 
     try {
-      // Keywords = tytuł/nazwa produktu (fallback gdy EAN nie daje wyników)
-      const keywords = product.title || product.inputName || '';
+      // Extract main keywords from title (removes EAN, "Neu", specs)
+      const keywords = extractSearchKeywords(product.title || product.inputName || '');
       const data = await checkMarketPrices(product.ean, keywords);
       
       const newSuggested = calculateSuggestedPrice(

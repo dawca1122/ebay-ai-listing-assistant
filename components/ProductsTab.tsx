@@ -13,6 +13,29 @@ interface ProductsTabProps {
   addLog: (log: Omit<LogEntry, 'id' | 'timestamp'>) => void;
 }
 
+// Helper: Extract main keywords from product title (first 3-4 meaningful words)
+// Removes: EAN codes, "Neu", "OVP", specifications like "32h", "IP54", etc.
+const extractSearchKeywords = (text: string): string => {
+  if (!text) return '';
+  
+  // Remove common noise words and patterns
+  const cleaned = text
+    .replace(/\b\d{8,14}\b/g, '')  // Remove EAN codes (8-14 digits)
+    .replace(/\b(Neu|OVP|NEU|neu|New|new|Sealed|sealed|Original|ORIGINAL)\b/gi, '')
+    .replace(/\b\d+[hH]\b/g, '')   // Remove "32h", "24H" etc.
+    .replace(/\bIP\d+\b/gi, '')    // Remove "IP54", "IP67" etc.
+    .replace(/\b[A-Z]{2,}\d+[A-Z]?\d*\b/g, '')  // Remove model codes like "S24" but keep brand names
+    .replace(/[–—-]+/g, ' ')       // Replace dashes with spaces
+    .replace(/\s+/g, ' ')          // Normalize whitespace
+    .trim();
+  
+  // Split into words and take first 4 meaningful words (at least 2 chars)
+  const words = cleaned.split(' ').filter(w => w.length >= 2);
+  const mainKeywords = words.slice(0, 4).join(' ');
+  
+  return mainKeywords || text.split(' ').slice(0, 3).join(' '); // Fallback to original first 3 words
+};
+
 // Helper to get tokens from localStorage
 const getStoredTokens = () => {
   const stored = localStorage.getItem('ebay_oauth_tokens');
@@ -551,8 +574,8 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     try {
       updateProduct(productId, { status: ProductStatus.AI_PROCESSING });
       
-      // Keywords = tytuł/nazwa produktu (fallback gdy EAN nie daje wyników)
-      const keywords = product.title || product.inputName || '';
+      // Extract main keywords from title (removes EAN, "Neu", specs)
+      const keywords = extractSearchKeywords(product.title || product.inputName || '');
       const result = await checkMarketPrices(product.ean, keywords);
       
       const { undercutMode, undercutBy, minGrossPrice } = settings.pricingRules;
@@ -817,8 +840,8 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
 
     for (const product of selected) {
       try {
-        // Keywords = tytuł/nazwa produktu (fallback gdy EAN nie daje wyników)
-        const keywords = product.title || product.inputName || '';
+        // Extract main keywords from title (removes EAN, "Neu", specs)
+        const keywords = extractSearchKeywords(product.title || product.inputName || '');
         
         const result = await checkMarketPrices(product.ean, keywords);
 
