@@ -128,6 +128,10 @@ export default async function handler(req, res) {
       return handleOAuthDisconnect(req, res);
     }
     
+    if (path === 'oauth/manual-exchange') {
+      return handleManualCodeExchange(req, res);
+    }
+    
     // ==========================================================================
     // ACCOUNT ROUTES
     // ==========================================================================
@@ -547,6 +551,96 @@ async function handleOAuthStatus(req, res) {
     needsRefresh,
     hasRefreshToken: !!tokens.refreshToken
   });
+}
+
+// Manual code exchange - when RuName redirect doesn't work
+async function handleManualCodeExchange(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed. Use POST.' });
+  }
+  
+  let body;
+  try {
+    if (typeof req.body === 'string') {
+      body = JSON.parse(req.body);
+    } else {
+      body = req.body;
+    }
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid JSON body' });
+  }
+  
+  const { code } = body;
+  
+  if (!code) {
+    return res.status(400).json({ 
+      error: 'Missing code parameter',
+      usage: 'POST with JSON body: { "code": "v^1.1#..." }'
+    });
+  }
+  
+  try {
+    const { clientId, clientSecret, ruName, environment } = getEbayCredentials();
+    const apiBase = getEbayBaseUrl(environment);
+    
+    console.log('[eBay Manual Exchange] Exchanging code for tokens...');
+    
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    
+    const response = await fetch(`${apiBase}/identity/v1/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${credentials}`
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: ruName
+      }).toString()
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error('[eBay Manual Exchange] Failed:', data);
+      return res.status(400).json({
+        success: false,
+        error: data.error,
+        error_description: data.error_description,
+        hint: data.error === 'invalid_grant' 
+          ? 'Kod wygasł (ważny 5 minut). Rozpocznij OAuth ponownie.'
+          : 'Sprawdź kod autoryzacyjny'
+      });
+    }
+    
+    // Store tokens in secure HTTP-only cookie
+    const tokens = {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + (data.expires_in * 1000),
+      refreshExpiresAt: Date.now() + (data.refresh_token_expires_in * 1000),
+      tokenType: data.token_type
+    };
+    
+    setTokenCookies(res, tokens);
+    
+    console.log('[eBay Manual Exchange] Success! Tokens saved.');
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Tokeny zapisane pomyślnie!',
+      expiresIn: data.expires_in,
+      refreshExpiresIn: data.refresh_token_expires_in
+    });
+    
+  } catch (err) {
+    console.error('[eBay Manual Exchange] Error:', err);
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
 }
 
 async function handleOAuthDisconnect(req, res) {
