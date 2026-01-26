@@ -6,7 +6,7 @@ import PricingTab from './components/PricingTab';
 import PublicationTab from './components/PublicationTab';
 import SettingsTab from './components/SettingsTab';
 import DebugTab from './components/DebugTab';
-import { Product, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS } from './types';
+import { Product, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS, DEFAULT_GEMINI_MODELS, DEFAULT_AI_INSTRUCTIONS } from './types';
 
 const INITIAL_SETTINGS: AppSettings = {
   ebay: {
@@ -22,6 +22,8 @@ const INITIAL_SETTINGS: AppSettings = {
     merchantLocationKey: ''
   },
   geminiKey: process.env.API_KEY || '',
+  geminiModels: DEFAULT_GEMINI_MODELS,
+  aiInstructions: DEFAULT_AI_INSTRUCTIONS,
   aiRules: {
     systemPrompt: 'You are a professional eBay listing specialist for German market (eBay.de). Write in German.',
     skuRules: 'Format: EB-[BRAND]-[MODEL]-[YEAR]',

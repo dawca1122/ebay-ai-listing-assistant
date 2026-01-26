@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Product, ProductStatus, ProductCondition, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS} from '../types';
 import { generateProductDetails, suggestCategory } from '../services/geminiService';
+import * as XLSX from 'xlsx';
 
 interface ProductsTabProps {
   products: Product[];
@@ -41,6 +42,23 @@ const STATUS_CONFIG: Record<ProductStatus, { bg: string; text: string; label: st
   [ProductStatus.ERROR_PUBLISH]: { bg: 'bg-red-100', text: 'text-red-600', label: 'Pub Err' },
 };
 
+// Column mapping modal types
+interface ImportPreview {
+  headers: string[];
+  rows: string[][];
+  mapping: Record<string, string>; // our field -> file column
+}
+
+const IMPORTABLE_FIELDS = [
+  { key: 'ean', label: 'EAN', required: true },
+  { key: 'inputName', label: 'Nazwa produktu', required: true },
+  { key: 'shopCategory', label: 'Shop Category', required: false },
+  { key: 'imageUrl', label: 'Link do zdjęcia', required: false },
+  { key: 'sku', label: 'SKU (prefix)', required: false },
+  { key: 'quantity', label: 'Ilość', required: false },
+  { key: 'priceGross', label: 'Cena brutto', required: false },
+];
+
 const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settings, ebayConnected, onError, addLog }) => {
   // State
   const [bulkInput, setBulkInput] = useState('');
@@ -50,6 +68,14 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
   const [searchQuery, setSearchQuery] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState('');
+  
+  // File import state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  
+  // New Shop Category input
+  const [newCategoryInput, setNewCategoryInput] = useState('');
 
   // Get unique shop categories for filter
   const shopCategories = useMemo(() => {
@@ -80,7 +106,124 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
   };
 
-  // ============ IMPORT ============
+  // ============ FILE IMPORT (Excel/CSV) ============
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
+      
+      if (jsonData.length < 2) {
+        onError('Plik musi zawierać nagłówki i co najmniej jeden wiersz danych');
+        return;
+      }
+
+      const headers = (jsonData[0] as string[]).map(h => String(h || '').trim());
+      const rows = jsonData.slice(1).filter(row => (row as string[]).some(cell => cell));
+
+      // AI-assisted auto-mapping
+      const autoMapping: Record<string, string> = {};
+      IMPORTABLE_FIELDS.forEach(field => {
+        const match = headers.find(h => {
+          const hLower = h.toLowerCase();
+          if (field.key === 'ean') return hLower.includes('ean') || hLower.includes('gtin') || hLower.includes('barcode');
+          if (field.key === 'inputName') return hLower.includes('name') || hLower.includes('nazwa') || hLower.includes('product') || hLower.includes('title') || hLower.includes('tytuł');
+          if (field.key === 'shopCategory') return hLower.includes('categ') || hLower.includes('kategor');
+          if (field.key === 'imageUrl') return hLower.includes('image') || hLower.includes('img') || hLower.includes('zdjęci') || hLower.includes('zdjec') || hLower.includes('bild') || hLower.includes('photo') || hLower.includes('url');
+          if (field.key === 'sku') return hLower.includes('sku') || hLower.includes('artik');
+          if (field.key === 'quantity') return hLower.includes('qty') || hLower.includes('quant') || hLower.includes('ilość') || hLower.includes('ilosc') || hLower.includes('menge');
+          if (field.key === 'priceGross') return hLower.includes('price') || hLower.includes('cena') || hLower.includes('preis') || hLower.includes('brutto');
+          return false;
+        });
+        if (match) autoMapping[field.key] = match;
+      });
+
+      setImportPreview({
+        headers,
+        rows: rows as string[][],
+        mapping: autoMapping
+      });
+      setShowImportModal(true);
+
+    } catch (err: any) {
+      onError('Błąd odczytu pliku: ' + err.message);
+    }
+
+    // Reset input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const updateMapping = (fieldKey: string, headerName: string) => {
+    if (!importPreview) return;
+    setImportPreview({
+      ...importPreview,
+      mapping: { ...importPreview.mapping, [fieldKey]: headerName }
+    });
+  };
+
+  const executeImport = () => {
+    if (!importPreview) return;
+
+    const { headers, rows, mapping } = importPreview;
+    const newItems: Product[] = [];
+
+    rows.forEach(row => {
+      const getValue = (fieldKey: string): string => {
+        const headerName = mapping[fieldKey];
+        if (!headerName) return '';
+        const idx = headers.indexOf(headerName);
+        return idx >= 0 ? String(row[idx] || '').trim() : '';
+      };
+
+      const ean = getValue('ean');
+      const inputName = getValue('inputName');
+      
+      if (ean || inputName) {
+        const priceStr = getValue('priceGross');
+        const priceGross = parseFloat(priceStr.replace(',', '.')) || 0;
+        const priceNet = parseFloat((priceGross / (1 + EBAY_DE_CONSTANTS.VAT_RATE)).toFixed(2));
+        
+        newItems.push({
+          id: crypto.randomUUID().split('-')[0],
+          ean,
+          inputName,
+          shopCategory: getValue('shopCategory'),
+          imageUrl: getValue('imageUrl'),
+          quantity: parseInt(getValue('quantity')) || 1,
+          condition: ProductCondition.NEW,
+          sku: getValue('sku'), // User prefix, AI will complete
+          title: '',
+          descriptionHtml: '',
+          keywords: '',
+          ebayCategoryId: '',
+          ebayCategoryName: '',
+          competitorPrices: [],
+          priceGross,
+          priceNet,
+          status: ProductStatus.DRAFT,
+          ebayOfferId: '',
+          ebayItemId: '',
+          lastError: '',
+          createdAt: Date.now()
+        });
+      }
+    });
+
+    if (newItems.length > 0) {
+      setProducts(prev => [...newItems, ...prev]);
+      setShowImportModal(false);
+      setImportPreview(null);
+    } else {
+      onError('Nie znaleziono prawidłowych wierszy do importu');
+    }
+  };
+
+  // ============ BULK TEXT IMPORT ============
   const handleBulkImport = () => {
     const lines = bulkInput.split('\n').filter(line => line.trim() !== '');
     const newItems: Product[] = [];
@@ -98,6 +241,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           ean,
           inputName: name,
           shopCategory,
+          imageUrl: '',
           quantity: 1,
           condition: ProductCondition.NEW,
           sku: '',
@@ -123,6 +267,55 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
       setBulkInput('');
     } else {
       onError("Błąd formatu. Użyj: EAN | NAZWA | KATEGORIA");
+    }
+  };
+
+  // ============ SINGLE PRODUCT AI ACTIONS ============
+  const handleGenerateSku = async (productId: string) => {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+
+    const prefix = product.sku || '';
+    // Generate SKU based on EAN and/or product name
+    const eanPart = product.ean ? product.ean.slice(-4) : '';
+    const namePart = (product.inputName || product.title || 'PROD')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 4);
+    
+    const newSku = prefix 
+      ? `${prefix}-${namePart}${eanPart}` 
+      : `${namePart}${eanPart || crypto.randomUUID().slice(0, 4).toUpperCase()}`;
+    
+    updateProduct(productId, { sku: newSku });
+  };
+
+  const handleFindCategory = async (productId: string) => {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    const searchTerm = product.inputName || product.title || '';
+    if (!searchTerm) {
+      onError('Brak nazwy produktu do wyszukania kategorii');
+      return;
+    }
+
+    try {
+      updateProduct(productId, { status: ProductStatus.AI_PROCESSING });
+      
+      const result = await suggestCategory(searchTerm, settings.geminiApiKey);
+      if (result && result.length > 0) {
+        const top = result[0];
+        updateProduct(productId, { 
+          ebayCategoryId: top.id, 
+          ebayCategoryName: top.name,
+          status: ProductStatus.CATEGORY_DONE
+        });
+      } else {
+        updateProduct(productId, { status: ProductStatus.ERROR_CATEGORY, lastError: 'AI nie znalazło kategorii' });
+      }
+    } catch (err: any) {
+      updateProduct(productId, { status: ProductStatus.ERROR_CATEGORY, lastError: err.message });
     }
   };
 
@@ -168,11 +361,14 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           settings.geminiKey,
           product.inputName,
           product.ean,
-          `${settings.aiRules.systemPrompt}\n\nSKU Rules: ${settings.aiRules.skuRules}\nTitle Rules: ${settings.aiRules.titleRules}\nDescription Rules: ${settings.aiRules.descriptionRules}\nForbidden: ${settings.aiRules.forbiddenWords}\nShop Category: ${product.shopCategory}\nCondition: ${product.condition}`
+          `${settings.aiRules.systemPrompt}\n\nSKU Rules: ${settings.aiRules.skuRules}\nTitle Rules: ${settings.aiRules.titleRules}\nDescription Rules: ${settings.aiRules.descriptionRules}\nForbidden: ${settings.aiRules.forbiddenWords}\nShop Category: ${product.shopCategory}\nCondition: ${product.condition}`,
+          settings.geminiModels?.titleDescription,
+          settings.aiInstructions?.titlePrompt,
+          settings.aiInstructions?.descriptionPrompt
         );
 
         updateProduct(product.id, {
-          sku: details.sku,
+          sku: product.sku ? `${product.sku}-${details.sku}` : details.sku, // Preserve user prefix
           title: details.title,
           descriptionHtml: details.descriptionHtml,
           keywords: details.keywords || '',
@@ -226,7 +422,12 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     for (const product of selected) {
       try {
         const searchText = `${product.title || product.inputName} ${product.shopCategory}`;
-        const results = await suggestCategory(settings.geminiKey, searchText);
+        const results = await suggestCategory(
+          settings.geminiKey, 
+          searchText,
+          settings.geminiModels?.categorySearch,
+          settings.aiInstructions?.categoryPrompt
+        );
         
         if (results.length > 0) {
           const top = results[0];
@@ -739,23 +940,39 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             </div>
           </div>
 
-          {/* Import */}
+          {/* Import from File */}
           <div className="flex gap-2 items-end">
-            <div>
-              <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Import (EAN | Nazwa | Kategoria)</label>
-              <textarea 
+            <input 
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+            />
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-black transition-all h-10 flex items-center gap-2"
+            >
+              📁 Import Excel/CSV
+            </button>
+            
+            {/* Quick text import */}
+            <div className="flex gap-1">
+              <input 
+                type="text"
                 value={bulkInput}
                 onChange={(e) => setBulkInput(e.target.value)}
-                placeholder="4006381333931 | Produkt ABC | Elektronika"
-                className="w-64 h-10 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono resize-none"
+                placeholder="EAN | Nazwa | Kategoria"
+                className="w-48 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono h-10"
+                onKeyDown={(e) => e.key === 'Enter' && handleBulkImport()}
               />
+              <button 
+                onClick={handleBulkImport}
+                className="px-3 py-2 bg-slate-700 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-all h-10"
+              >
+                ➕
+              </button>
             </div>
-            <button 
-              onClick={handleBulkImport}
-              className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-black transition-all h-10"
-            >
-              ➕ Dodaj
-            </button>
           </div>
         </div>
       </div>
@@ -850,6 +1067,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                 <th className="px-3 py-3">Shop Cat</th>
                 <th className="px-3 py-3">EAN</th>
                 <th className="px-3 py-3">Product Name</th>
+                <th className="px-3 py-3">Image URL</th>
                 <th className="px-3 py-3 w-16">Qty</th>
                 <th className="px-3 py-3 w-20">Condition</th>
                 <th className="px-3 py-3">SKU</th>
@@ -864,7 +1082,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             <tbody className="divide-y divide-slate-100">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-12 text-center text-slate-400 italic">
+                  <td colSpan={14} className="px-4 py-12 text-center text-slate-400 italic">
                     Brak produktów. Zaimportuj dane powyżej.
                   </td>
                 </tr>
@@ -882,13 +1100,29 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                         />
                       </td>
                       <td className="px-3 py-2">
-                        <input 
-                          type="text"
+                        <select
                           value={p.shopCategory}
-                          onChange={(e) => updateProduct(p.id, { shopCategory: e.target.value })}
+                          onChange={(e) => {
+                            if (e.target.value === '__NEW__') {
+                              const newCat = prompt('Podaj nazwę nowej kategorii:');
+                              if (newCat && newCat.trim()) {
+                                updateProduct(p.id, { shopCategory: newCat.trim() });
+                              }
+                            } else {
+                              updateProduct(p.id, { shopCategory: e.target.value });
+                            }
+                          }}
                           className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs"
-                          placeholder="---"
-                        />
+                        >
+                          <option value="">---</option>
+                          {shopCategories.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                          {p.shopCategory && !shopCategories.includes(p.shopCategory) && (
+                            <option value={p.shopCategory}>{p.shopCategory}</option>
+                          )}
+                          <option value="__NEW__">➕ Nowa kategoria...</option>
+                        </select>
                       </td>
                       <td className="px-3 py-2">
                         <input 
@@ -905,6 +1139,28 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                           onChange={(e) => updateProduct(p.id, { inputName: e.target.value })}
                           className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs"
                         />
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1">
+                          <input 
+                            type="text"
+                            value={p.imageUrl || ''}
+                            onChange={(e) => updateProduct(p.id, { imageUrl: e.target.value })}
+                            className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono"
+                            placeholder="https://..."
+                          />
+                          {p.imageUrl && (
+                            <a 
+                              href={p.imageUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-500 hover:text-blue-700 text-xs"
+                              title="Podgląd"
+                            >
+                              🔗
+                            </a>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2">
                         <input 
@@ -926,13 +1182,22 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                         </select>
                       </td>
                       <td className="px-3 py-2">
-                        <input 
-                          type="text"
-                          value={p.sku}
-                          onChange={(e) => updateProduct(p.id, { sku: e.target.value })}
-                          className="w-full px-2 py-1 bg-slate-100 border border-slate-200 rounded text-xs font-mono"
-                          placeholder="auto"
-                        />
+                        <div className="flex gap-1">
+                          <input 
+                            type="text"
+                            value={p.sku}
+                            onChange={(e) => updateProduct(p.id, { sku: e.target.value })}
+                            className="flex-1 px-2 py-1 bg-slate-100 border border-slate-200 rounded text-xs font-mono min-w-[60px]"
+                            placeholder="prefix..."
+                          />
+                          <button
+                            onClick={() => handleGenerateSku(p.id)}
+                            className="px-1.5 py-1 bg-blue-100 text-blue-600 rounded text-xs hover:bg-blue-200"
+                            title="AI generuje SKU z prefixu"
+                          >
+                            🤖
+                          </button>
+                        </div>
                       </td>
                       <td className="px-3 py-2">
                         <input 
@@ -965,14 +1230,23 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                         />
                       </td>
                       <td className="px-3 py-2">
-                        <input 
-                          type="text"
-                          value={p.ebayCategoryId}
-                          onChange={(e) => updateProduct(p.id, { ebayCategoryId: e.target.value })}
-                          className="w-20 px-2 py-1 bg-slate-100 border border-slate-200 rounded text-xs font-mono"
-                          placeholder="---"
-                          title={p.ebayCategoryName}
-                        />
+                        <div className="flex gap-1">
+                          <input 
+                            type="text"
+                            value={p.ebayCategoryId}
+                            onChange={(e) => updateProduct(p.id, { ebayCategoryId: e.target.value })}
+                            className="w-16 px-2 py-1 bg-slate-100 border border-slate-200 rounded text-xs font-mono"
+                            placeholder="---"
+                            title={p.ebayCategoryName}
+                          />
+                          <button
+                            onClick={() => handleFindCategory(p.id)}
+                            className="px-1.5 py-1 bg-purple-100 text-purple-600 rounded text-xs hover:bg-purple-200"
+                            title="AI znajdź kategorię eBay"
+                          >
+                            🏷️
+                          </button>
+                        </div>
                       </td>
                       <td className="px-3 py-2">
                         <span className={`text-[8px] px-2 py-1 rounded-full font-bold ${statusConfig.bg} ${statusConfig.text}`}>
@@ -1004,6 +1278,97 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           <span>Zaznaczono: {selectedIds.size}</span>
         </div>
       </div>
+
+      {/* Import Modal */}
+      {showImportModal && importPreview && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-slate-200">
+              <h2 className="text-lg font-bold">📁 Import pliku</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Dopasuj kolumny z pliku do pól w aplikacji. Znaleziono {importPreview.rows.length} wierszy.
+              </p>
+            </div>
+
+            <div className="p-6 overflow-auto flex-1">
+              {/* Mapping section */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                {IMPORTABLE_FIELDS.map(field => (
+                  <div key={field.key} className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                      {field.label}
+                      {field.required && <span className="text-red-500">*</span>}
+                    </label>
+                    <select
+                      value={importPreview.mapping[field.key] || ''}
+                      onChange={(e) => updateMapping(field.key, e.target.value)}
+                      className={`w-full px-3 py-2 border rounded-lg text-xs ${
+                        field.required && !importPreview.mapping[field.key] 
+                          ? 'border-red-300 bg-red-50' 
+                          : 'border-slate-200 bg-slate-50'
+                      }`}
+                    >
+                      <option value="">-- nie mapuj --</option>
+                      {importPreview.headers.map(h => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+
+              {/* Preview table */}
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <div className="bg-slate-50 px-4 py-2 border-b border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Podgląd pierwszych 5 wierszy:
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-100">
+                      <tr>
+                        {importPreview.headers.map((h, i) => (
+                          <th key={i} className="px-3 py-2 text-left font-bold text-slate-600 whitespace-nowrap">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.rows.slice(0, 5).map((row, i) => (
+                        <tr key={i} className="border-t border-slate-100">
+                          {importPreview.headers.map((_, j) => (
+                            <td key={j} className="px-3 py-2 whitespace-nowrap text-slate-600">
+                              {String(row[j] || '')}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+              <button
+                onClick={() => { setShowImportModal(false); setImportPreview(null); }}
+                className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300"
+              >
+                Anuluj
+              </button>
+              <button
+                onClick={executeImport}
+                disabled={!importPreview.mapping['ean'] && !importPreview.mapping['inputName']}
+                className="px-6 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-black disabled:opacity-50"
+              >
+                ✅ Importuj {importPreview.rows.length} wierszy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

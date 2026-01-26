@@ -1,16 +1,19 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Product } from "../types";
+import { Product, GeminiModelId, AiInstructions } from "../types";
 
-export const testConnection = async (apiKey: string): Promise<boolean> => {
+// Default model if not specified
+const DEFAULT_MODEL = "gemini-2.5-flash";
+
+export const testConnection = async (apiKey: string, model?: GeminiModelId): Promise<boolean> => {
   if (!apiKey) return false;
   try {
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: model || DEFAULT_MODEL,
       contents: "Hello, respond with 'OK'",
     });
-    return response.text?.includes("OK") || false;
+    return response.text?.includes("OK") || response.text?.length > 0 || false;
   } catch (e) {
     console.error("Gemini test failed", e);
     return false;
@@ -19,23 +22,27 @@ export const testConnection = async (apiKey: string): Promise<boolean> => {
 
 export const fetchCompetitionData = async (
   apiKey: string,
-  product: Product
+  product: Product,
+  model?: GeminiModelId,
+  customPrompt?: string
 ): Promise<{ minTotal: number; medianTotal: number; warnings: string[] }> => {
   if (!apiKey) throw new Error("Missing Gemini API Key");
 
   const ai = new GoogleGenAI({ apiKey });
-  const prompt = `Find current real listings on eBay.de for product: "${product.inputName}" (EAN: ${product.ean}).
-                  Focus on eBay.de. Search by EAN first, then by title.
-                  Identify the total price (item + shipping to Germany).
-                  Calculate:
-                  1. The minimum total price found.
-                  2. The median total price.
-                  3. Note any delivery times longer than 5 days or extreme price outliers as warnings.
-                  
-                  Return ONLY a JSON object with keys: minTotal, medianTotal, warnings (array of strings).`;
+  
+  const basePrompt = customPrompt || `Szukaj aktualnych ofert na eBay.de dla podanego produktu.
+Najpierw szukaj po EAN, potem po nazwie.
+Znajdź cenę łączną (produkt + wysyłka do Niemiec).
+Ignoruj oferty z dostawą >7 dni.`;
+
+  const prompt = `${basePrompt}
+
+Product: "${product.inputName}" (EAN: ${product.ean})
+
+Return ONLY a JSON object with keys: minTotal (number), medianTotal (number), warnings (array of strings).`;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: model || DEFAULT_MODEL,
     contents: prompt,
     config: {
       tools: [{ googleSearch: {} }],
@@ -67,13 +74,14 @@ export const generateProductTitle = async (
   apiKey: string,
   name: string,
   ean: string,
-  instructions: string
+  instructions: string,
+  model?: GeminiModelId
 ): Promise<string> => {
   if (!apiKey) throw new Error("Missing Gemini API Key");
 
   const ai = new GoogleGenAI({ apiKey });
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: model || DEFAULT_MODEL,
     contents: `Generate only a professional eBay listing title for this product.
                Input Name: ${name}
                EAN: ${ean}
@@ -103,17 +111,28 @@ export const generateProductDetails = async (
   apiKey: string, 
   name: string, 
   ean: string, 
-  instructions: string
+  instructions: string,
+  model?: GeminiModelId,
+  titlePrompt?: string,
+  descriptionPrompt?: string
 ): Promise<Partial<Product>> => {
   if (!apiKey) throw new Error("Missing Gemini API Key");
 
   const ai = new GoogleGenAI({ apiKey });
+  
+  const prompt = `${titlePrompt || 'Generuj profesjonalne tytuły do aukcji eBay.de w języku niemieckim.'}
+
+${descriptionPrompt || 'Generuj opisy produktów dla eBay.de w HTML. Język niemiecki, profesjonalny ton.'}
+
+Product Name: ${name}
+EAN: ${ean}
+Additional Rules: ${instructions}
+
+Generate SKU, Title (max 80 chars, German), Description (HTML, German), Keywords, and suggested price.`;
+
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: `Generate professional eBay listing data.
-               Product Name: ${name}
-               EAN: ${ean}
-               Specific Rules: ${instructions}`,
+    model: model || DEFAULT_MODEL,
+    contents: prompt,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -141,15 +160,25 @@ export const generateProductDetails = async (
 
 export const suggestCategory = async (
   apiKey: string,
-  name: string
+  name: string,
+  model?: GeminiModelId,
+  customPrompt?: string
 ): Promise<{ id: string; name: string; confidence: string }[]> => {
   if (!apiKey) throw new Error("Missing Gemini API Key");
 
   const ai = new GoogleGenAI({ apiKey });
+  
+  const basePrompt = customPrompt || `Znajdź najlepszą kategorię eBay.de dla produktu.
+Zwróć ID kategorii z drzewa 77 (EBAY_DE).
+Wybierz najbardziej szczegółową pasującą kategorię.`;
+
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: `Suggest the top 2 eBay categories (ID and Name) for the product: "${name}". 
-               Respond with confidence label as 'TOP1' or 'TOP2'.`,
+    model: model || DEFAULT_MODEL,
+    contents: `${basePrompt}
+
+Product: "${name}"
+
+Return top 2 eBay categories with ID (number), Name, and confidence label ('TOP1' or 'TOP2').`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {

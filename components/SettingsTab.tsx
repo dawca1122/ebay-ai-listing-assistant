@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AppSettings, EBAY_DE_CONSTANTS } from '../types';
+import { AppSettings, EBAY_DE_CONSTANTS, GEMINI_MODELS, GeminiModelId, DEFAULT_GEMINI_MODELS, DEFAULT_AI_INSTRUCTIONS } from '../types';
 import { 
   getOAuthStatus, 
   getOAuthStartUrl,
@@ -105,6 +105,13 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
   
   // Save status
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  
+  // Gemini test state
+  const [isTestingGemini, setIsTestingGemini] = useState(false);
+  const [geminiTestResult, setGeminiTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  
+  // Active AI tab
+  const [activeAiTab, setActiveAiTab] = useState<'models' | 'instructions'>('models');
 
   const updateSection = <T extends keyof AppSettings>(section: T, updates: Partial<AppSettings[T]>) => {
     setSettings(prev => ({
@@ -112,6 +119,16 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
       [section]: { ...prev[section], ...updates }
     }));
   };
+  
+  // Initialize missing settings if needed
+  useEffect(() => {
+    if (!settings.geminiModels) {
+      setSettings(prev => ({ ...prev, geminiModels: DEFAULT_GEMINI_MODELS }));
+    }
+    if (!settings.aiInstructions) {
+      setSettings(prev => ({ ...prev, aiInstructions: DEFAULT_AI_INSTRUCTIONS }));
+    }
+  }, []);
 
   // Check connection status on mount (now uses cookies)
   useEffect(() => {
@@ -163,6 +180,47 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
     }, 500);
+  };
+
+  // ============ Gemini Test ============
+  const handleTestGemini = async () => {
+    if (!settings.geminiKey) {
+      setGeminiTestResult({ success: false, message: 'Brak klucza API Gemini' });
+      return;
+    }
+    
+    setIsTestingGemini(true);
+    setGeminiTestResult(null);
+    
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: settings.geminiKey });
+      const model = settings.geminiModels?.titleDescription || 'gemini-2.5-flash';
+      
+      const response = await ai.models.generateContent({
+        model,
+        contents: 'Odpowiedz tylko: OK',
+      });
+      
+      if (response.text?.includes('OK')) {
+        setGeminiTestResult({ 
+          success: true, 
+          message: `✅ Połączono z Gemini! Model: ${model}` 
+        });
+      } else {
+        setGeminiTestResult({ 
+          success: true, 
+          message: `✅ Gemini odpowiedział: "${response.text?.slice(0, 50)}..."` 
+        });
+      }
+    } catch (error: any) {
+      setGeminiTestResult({ 
+        success: false, 
+        message: `❌ Błąd: ${error.message}` 
+      });
+    }
+    
+    setIsTestingGemini(false);
   };
 
   const handleConnectEbay = () => {
@@ -648,11 +706,264 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
         </div>
       </section>
 
-      {/* ============ D) VAT i Pricing Rules ============ */}
+      {/* ============ D) Gemini AI ============ */}
+      <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+        <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-slate-900">
+          <span className="p-2 bg-indigo-100 rounded-xl text-indigo-600">🤖</span> 
+          D) Gemini AI
+        </h2>
+        
+        <div className="space-y-6">
+          {/* API Key */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Gemini API Key</label>
+              <input 
+                type="password" 
+                value={settings.geminiKey}
+                onChange={(e) => setSettings(prev => ({ ...prev, geminiKey: e.target.value }))}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" 
+                placeholder="AIza..." 
+              />
+            </div>
+            <div className="flex items-end gap-2">
+              <button 
+                onClick={handleTestGemini}
+                disabled={isTestingGemini || !settings.geminiKey}
+                className={`px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+                  isTestingGemini 
+                    ? 'bg-slate-100 text-slate-400 cursor-wait' 
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                }`}
+              >
+                {isTestingGemini ? "⏳ Testowanie..." : "🧪 Testuj Gemini"}
+              </button>
+            </div>
+          </div>
+          
+          {geminiTestResult && (
+            <div className={`p-3 rounded-xl border ${
+              geminiTestResult.success 
+                ? 'bg-green-50 border-green-200 text-green-700' 
+                : 'bg-red-50 border-red-200 text-red-700'
+            } text-sm`}>
+              {geminiTestResult.message}
+            </div>
+          )}
+          
+          {/* Tabs: Models / Instructions */}
+          <div className="flex gap-2 border-b border-slate-200 pb-2">
+            <button
+              onClick={() => setActiveAiTab('models')}
+              className={`px-4 py-2 rounded-t-lg text-sm font-bold transition-all ${
+                activeAiTab === 'models' 
+                  ? 'bg-indigo-100 text-indigo-700' 
+                  : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              🎯 Modele
+            </button>
+            <button
+              onClick={() => setActiveAiTab('instructions')}
+              className={`px-4 py-2 rounded-t-lg text-sm font-bold transition-all ${
+                activeAiTab === 'instructions' 
+                  ? 'bg-indigo-100 text-indigo-700' 
+                  : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              📝 Instrukcje
+            </button>
+          </div>
+          
+          {/* Models Tab */}
+          {activeAiTab === 'models' && (
+            <div className="space-y-4">
+              <p className="text-xs text-slate-500 mb-4">
+                Wybierz model Gemini dla każdego zadania. Szybkie modele (Flash) są tańsze, Pro są dokładniejsze.
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Title & Description */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                    Tytuły i Opisy
+                  </label>
+                  <select
+                    value={settings.geminiModels?.titleDescription || 'gemini-2.5-flash'}
+                    onChange={(e) => updateSection('geminiModels', { titleDescription: e.target.value as GeminiModelId })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                  >
+                    {Object.entries(GEMINI_MODELS).map(([id, info]) => (
+                      <option key={id} value={id}>
+                        {info.name} ({info.tier})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-slate-400 mt-1 ml-1">
+                    {GEMINI_MODELS[settings.geminiModels?.titleDescription || 'gemini-2.5-flash']?.desc}
+                  </p>
+                </div>
+                
+                {/* Price Search */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                    Szukanie Cen
+                  </label>
+                  <select
+                    value={settings.geminiModels?.priceSearch || 'gemini-2.5-flash'}
+                    onChange={(e) => updateSection('geminiModels', { priceSearch: e.target.value as GeminiModelId })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                  >
+                    {Object.entries(GEMINI_MODELS).map(([id, info]) => (
+                      <option key={id} value={id}>
+                        {info.name} ({info.tier})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-slate-400 mt-1 ml-1">
+                    {GEMINI_MODELS[settings.geminiModels?.priceSearch || 'gemini-2.5-flash']?.desc}
+                  </p>
+                </div>
+                
+                {/* Table Analysis */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                    Analiza Tabeli
+                  </label>
+                  <select
+                    value={settings.geminiModels?.tableAnalysis || 'gemini-2.5-pro'}
+                    onChange={(e) => updateSection('geminiModels', { tableAnalysis: e.target.value as GeminiModelId })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                  >
+                    {Object.entries(GEMINI_MODELS).map(([id, info]) => (
+                      <option key={id} value={id}>
+                        {info.name} ({info.tier})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-slate-400 mt-1 ml-1">
+                    {GEMINI_MODELS[settings.geminiModels?.tableAnalysis || 'gemini-2.5-pro']?.desc}
+                  </p>
+                </div>
+                
+                {/* Category Search */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                    Szukanie Kategorii
+                  </label>
+                  <select
+                    value={settings.geminiModels?.categorySearch || 'gemini-2.5-flash'}
+                    onChange={(e) => updateSection('geminiModels', { categorySearch: e.target.value as GeminiModelId })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                  >
+                    {Object.entries(GEMINI_MODELS).map(([id, info]) => (
+                      <option key={id} value={id}>
+                        {info.name} ({info.tier})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-slate-400 mt-1 ml-1">
+                    {GEMINI_MODELS[settings.geminiModels?.categorySearch || 'gemini-2.5-flash']?.desc}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Instructions Tab */}
+          {activeAiTab === 'instructions' && (
+            <div className="space-y-4">
+              <p className="text-xs text-slate-500 mb-4">
+                Dostosuj instrukcje (prompty) dla każdego zadania AI.
+              </p>
+              
+              <div className="space-y-4">
+                {/* Title Prompt */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                    Instrukcja: Tytuły
+                  </label>
+                  <textarea
+                    value={settings.aiInstructions?.titlePrompt || ''}
+                    onChange={(e) => updateSection('aiInstructions', { titlePrompt: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono h-24 resize-none"
+                    placeholder="Instrukcje dla generowania tytułów..."
+                  />
+                </div>
+                
+                {/* Description Prompt */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                    Instrukcja: Opisy
+                  </label>
+                  <textarea
+                    value={settings.aiInstructions?.descriptionPrompt || ''}
+                    onChange={(e) => updateSection('aiInstructions', { descriptionPrompt: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono h-24 resize-none"
+                    placeholder="Instrukcje dla generowania opisów..."
+                  />
+                </div>
+                
+                {/* Price Search Prompt */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                    Instrukcja: Szukanie Cen
+                  </label>
+                  <textarea
+                    value={settings.aiInstructions?.priceSearchPrompt || ''}
+                    onChange={(e) => updateSection('aiInstructions', { priceSearchPrompt: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono h-24 resize-none"
+                    placeholder="Instrukcje dla szukania cen konkurencji..."
+                  />
+                </div>
+                
+                {/* Category Prompt */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                    Instrukcja: Szukanie Kategorii
+                  </label>
+                  <textarea
+                    value={settings.aiInstructions?.categoryPrompt || ''}
+                    onChange={(e) => updateSection('aiInstructions', { categoryPrompt: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono h-24 resize-none"
+                    placeholder="Instrukcje dla szukania kategorii eBay..."
+                  />
+                </div>
+                
+                {/* Table Analysis Prompt */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                    Instrukcja: Analiza Tabeli
+                  </label>
+                  <textarea
+                    value={settings.aiInstructions?.tableAnalysisPrompt || ''}
+                    onChange={(e) => updateSection('aiInstructions', { tableAnalysisPrompt: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono h-24 resize-none"
+                    placeholder="Instrukcje dla analizy importowanej tabeli..."
+                  />
+                </div>
+              </div>
+              
+              <button
+                onClick={() => {
+                  if (confirm('Przywrócić domyślne instrukcje?')) {
+                    setSettings(prev => ({ ...prev, aiInstructions: DEFAULT_AI_INSTRUCTIONS }));
+                  }
+                }}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-all"
+              >
+                🔄 Przywróć domyślne
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ============ E) VAT i Pricing Rules ============ */}
       <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
         <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-slate-900">
           <span className="p-2 bg-amber-100 rounded-xl text-amber-600">💰</span> 
-          D) VAT i Pricing Rules
+          E) VAT i Pricing Rules
         </h2>
         
         <div className="space-y-6">
