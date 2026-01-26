@@ -333,14 +333,13 @@ async function refreshAccessTokenInternal(refreshToken) {
 // OAuth Handlers
 // =============================================================================
 
-// WHITELISTED SCOPES - DO NOT MODIFY
-// These are the only scopes that work with eBay OAuth
+// MINIMAL SCOPES - only what's absolutely needed for selling
+// commerce.taxonomy.readonly removed - may not be assigned to app keys
 const EBAY_SCOPES = [
   'https://api.ebay.com/oauth/api_scope',
   'https://api.ebay.com/oauth/api_scope/sell.inventory',
   'https://api.ebay.com/oauth/api_scope/sell.account',
-  'https://api.ebay.com/oauth/api_scope/sell.fulfillment',
-  'https://api.ebay.com/oauth/api_scope/commerce.taxonomy.readonly'
+  'https://api.ebay.com/oauth/api_scope/sell.fulfillment'
 ];
 
 async function handleOAuthStart(req, res) {
