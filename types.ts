@@ -1,10 +1,18 @@
 
 export enum ProductStatus {
-  DRAFT = 'DRAFT',           // Nowy, nic nie zrobione
-  PRICING = 'PRICING',       // Trwa price-check
-  READY = 'READY',           // Gotowy do publikacji
-  PUBLISHED = 'PUBLISHED',   // Opublikowany na eBay
-  ERROR = 'ERROR'            // Błąd
+  DRAFT = 'DRAFT',                     // Nowy, nic nie zrobione
+  AI_PROCESSING = 'AI_PROCESSING',     // Trwa generowanie AI
+  AI_DONE = 'AI_DONE',                 // AI wygenerowało SKU/Title/Desc
+  ERROR_AI = 'ERROR_AI',               // Błąd AI
+  CATEGORY_DONE = 'CATEGORY_DONE',     // Kategoria dobrana
+  ERROR_CATEGORY = 'ERROR_CATEGORY',   // Błąd kategorii
+  PRICE_CHECK_DONE = 'PRICE_CHECK_DONE', // Ceny konkurencji sprawdzone
+  ERROR_PRICECHECK = 'ERROR_PRICECHECK', // Błąd sprawdzania cen
+  PRICE_SET_DONE = 'PRICE_SET_DONE',   // Cena ustawiona
+  DRAFT_OK = 'DRAFT_OK',               // Gotowy do publikacji (DRAFT zbudowany)
+  ERROR_DRAFT = 'ERROR_DRAFT',         // Błąd budowania draftu
+  PUBLISHED = 'PUBLISHED',             // Opublikowany na eBay
+  ERROR_PUBLISH = 'ERROR_PUBLISH'      // Błąd publikacji
 }
 
 export enum ProductCondition {

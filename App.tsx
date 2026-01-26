@@ -89,7 +89,7 @@ const App: React.FC = () => {
                   products={products} 
                   setProducts={setProducts} 
                   settings={settings}
-                  aiInstructions={aiContext}
+                  ebayConnected={ebayStatus}
                   onError={handleError}
                 />;
       case 'pricing':
@@ -111,7 +111,7 @@ const App: React.FC = () => {
       case 'settings':
         return <SettingsTab settings={settings} setSettings={setSettings} />;
       default:
-        return <ProductsTab products={products} setProducts={setProducts} settings={settings} aiInstructions={aiContext} onError={handleError} />;
+        return <ProductsTab products={products} setProducts={setProducts} settings={settings} ebayConnected={ebayStatus} onError={handleError} />;
     }
   };
 

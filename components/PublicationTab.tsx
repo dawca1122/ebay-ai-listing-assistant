@@ -12,7 +12,7 @@ interface PublicationTabProps {
 }
 
 const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, settings, ebayStatus, onError }) => {
-  const readyProducts = products.filter(p => p.status === ProductStatus.READY);
+  const readyProducts = products.filter(p => p.status === ProductStatus.DRAFT_OK);
   const publishedProducts = products.filter(p => p.status === ProductStatus.PUBLISHED);
   
   const [publishingId, setPublishingId] = useState<string | null>(null);
@@ -49,7 +49,7 @@ const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, 
       const msg = err.message || "Nieoczekiwany błąd podczas publikacji.";
       onError(msg);
       updateProduct(id, {
-        status: ProductStatus.ERROR,
+        status: ProductStatus.ERROR_PUBLISH,
         lastError: `Publikacja: ${msg}`
       });
     } finally {

@@ -75,6 +75,11 @@ export default async function handler(req, res) {
       return handleLocations(req, res);
     }
     
+    // Browse API (search)
+    if (path === 'browse/search') {
+      return handleBrowseSearch(req, res);
+    }
+    
     // Inventory routes
     if (path.startsWith('inventory/')) {
       return handleInventory(req, res, path);
@@ -109,6 +114,7 @@ export default async function handler(req, res) {
         'policies',
         'policies/:type',
         'locations',
+        'browse/search',
         'inventory/:sku',
         'offer',
         'offer/:offerId/publish'
@@ -794,6 +800,57 @@ async function handleLocations(req, res) {
   }
   
   return res.status(405).json({ error: 'Method not allowed' });
+}
+
+// Handler: Browse API Search
+async function handleBrowseSearch(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  // Get token from Authorization header
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization token' });
+  }
+  
+  const accessToken = authHeader.replace('Bearer ', '');
+  const { environment } = getEbayCredentials();
+  const apiBase = getEbayBaseUrl(environment);
+  
+  try {
+    const url = new URL(req.url, `https://${req.headers.host}`);
+    const q = url.searchParams.get('q') || '';
+    const filter = url.searchParams.get('filter') || '';
+    const limit = url.searchParams.get('limit') || '20';
+    
+    let searchUrl = `${apiBase}/buy/browse/v1/item_summary/search?q=${encodeURIComponent(q)}&limit=${limit}`;
+    if (filter) {
+      searchUrl += `&filter=${encodeURIComponent(filter)}`;
+    }
+    
+    const response = await fetch(searchUrl, {
+      headers: { 
+        'Authorization': `Bearer ${accessToken}`,
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+      }
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      return res.status(response.status).json({ 
+        error: data.errors?.[0]?.message || `Browse API error ${response.status}`,
+        details: data
+      });
+    }
+    
+    return res.status(200).json(data);
+    
+  } catch (error) {
+    console.error('Browse search error:', error);
+    return res.status(500).json({ error: error.message });
+  }
 }
 
 // Handler: Policies (by type)
