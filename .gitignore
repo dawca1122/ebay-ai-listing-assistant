@@ -29,3 +29,6 @@ server/ebay_tokens.json
 *.njsproj
 *.sln
 *.sw?
+
+.vercel
+.env*.local
