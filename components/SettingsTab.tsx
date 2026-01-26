@@ -23,7 +23,8 @@ interface TestResult {
   debug?: any;
 }
 
-const API_BASE = 'http://localhost:3001/api/ebay';
+// API Base - relative URL works both locally (with Vite proxy) and on Vercel
+const API_BASE = '/api/ebay';
 
 const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
   const [testResult, setTestResult] = useState<string | null>(null);
