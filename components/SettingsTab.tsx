@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { AppSettings, EBAY_DE_CONSTANTS } from '../types';
+import { 
+  getOAuthStatus, 
+  startOAuth, 
+  disconnectOAuth, 
+  testEbayConnection, 
+  fetchPolicies, 
+  fetchLocations, 
+  createLocation 
+} from '../services/ebayService';
 
 interface SettingsTabProps {
   settings: AppSettings;
@@ -46,10 +55,10 @@ interface LocationData {
 // API Base - relative URL works both locally (with Vite proxy) and on Vercel
 const API_BASE = '/api/ebay';
 
-// LocalStorage key for eBay tokens
+// LocalStorage key for eBay tokens (kept for backward compatibility)
 const EBAY_TOKENS_KEY = 'ebay_oauth_tokens';
 
-// Helper functions to manage tokens in localStorage
+// Helper functions to manage tokens in localStorage (for backward compatibility)
 const getStoredTokens = (): EbayTokens | null => {
   const stored = localStorage.getItem(EBAY_TOKENS_KEY);
   if (!stored) return null;
@@ -103,16 +112,16 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
     }));
   };
 
-  // Check localStorage for tokens on mount
+  // Check connection status on mount (now uses cookies)
   useEffect(() => {
-    checkLocalTokens();
+    checkConnectionStatus();
     
     // Listen for OAuth success messages from popup
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'EBAY_AUTH_SUCCESS' && event.data?.tokens) {
-        console.log('OAuth success - storing tokens');
+        console.log('OAuth success - storing tokens in localStorage for backward compatibility');
         storeTokens(event.data.tokens);
-        checkLocalTokens();
+        checkConnectionStatus();
         setIsConnecting(false);
       } else if (event.data?.type === 'EBAY_AUTH_ERROR') {
         console.error('OAuth error:', event.data.error);
@@ -123,11 +132,19 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  const checkLocalTokens = () => {
-    const tokens = getStoredTokens();
-    const valid = isTokenValid(tokens);
-    setIsConnected(valid);
-    setTokenExpiresAt(tokens?.expiresAt || null);
+  const checkConnectionStatus = async () => {
+    try {
+      const status = await getOAuthStatus();
+      setIsConnected(status.connected);
+      setTokenExpiresAt(status.expiresAt);
+    } catch (error) {
+      console.error('Failed to check connection status:', error);
+      // Fallback to localStorage
+      const tokens = getStoredTokens();
+      const valid = tokens ? tokens.expiresAt > Date.now() + (5 * 60 * 1000) : false;
+      setIsConnected(valid);
+      setTokenExpiresAt(tokens?.expiresAt || null);
+    }
   };
 
   // ============ A) eBay API ============
@@ -143,36 +160,25 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
   };
 
   const handleConnectEbay = async () => {
-    // Validate required fields
-    if (!settings.ebay.clientId || !settings.ebay.clientSecret || !settings.ebay.ruName) {
-      alert('Uzupełnij Client ID, Client Secret i RuName przed połączeniem!');
-      return;
-    }
-    
     setIsConnecting(true);
     
     try {
-      // Get state for CSRF protection
-      const prepareResponse = await fetch(`${API_BASE}/oauth/prepare`);
-      const { state } = await prepareResponse.json();
+      // Get auth URL from new endpoint
+      const { authUrl } = await startOAuth();
       
-      // Get auth URL
-      const authUrlResponse = await fetch(`${API_BASE}/oauth/auth-url?state=${state}`);
-      const authData = await authUrlResponse.json();
-      
-      if (!authData.authUrl) {
-        throw new Error(authData.error || 'Nie udało się wygenerować URL autoryzacji');
+      if (!authUrl) {
+        throw new Error('Nie udało się wygenerować URL autoryzacji');
       }
       
       // Open OAuth popup
-      const authWindow = window.open(authData.authUrl, 'ebay_oauth', 'width=600,height=700');
+      const authWindow = window.open(authUrl, 'ebay_oauth', 'width=600,height=700');
       
       // Monitor popup closing
       const checkClosed = setInterval(() => {
         if (authWindow?.closed) {
           clearInterval(checkClosed);
           setIsConnecting(false);
-          checkLocalTokens();
+          checkConnectionStatus();
         }
       }, 1000);
       
@@ -191,6 +197,13 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
 
   const handleDisconnectEbay = async () => {
     if (!confirm('Czy na pewno chcesz rozłączyć z eBay?')) return;
+    
+    try {
+      await disconnectOAuth();
+    } catch (error) {
+      console.error('Disconnect error:', error);
+    }
+    
     clearStoredTokens();
     setIsConnected(false);
     setTokenExpiresAt(null);
@@ -203,26 +216,8 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
     setIsTestingEbay(true);
     setEbayTestResult(null);
     
-    const tokens = getStoredTokens();
-    if (!tokens) {
-      setEbayTestResult({
-        success: false,
-        message: 'Nie jesteś połączony z eBay',
-        hint: 'Kliknij "Połącz eBay (OAuth)" aby się zalogować'
-      });
-      setIsTestingEbay(false);
-      return;
-    }
-    
     try {
-      const response = await fetch(`${API_BASE}/test-connection`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${tokens.accessToken}`
-        }
-      });
-      const result = await response.json();
+      const result = await testEbayConnection();
       
       if (result.success) {
         setEbayTestResult({
@@ -251,31 +246,11 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
   // ============ B) Polityki eBay ============
 
   const handleFetchPolicies = async () => {
-    const tokens = getStoredTokens();
-    if (!tokens) {
-      setPoliciesError('Najpierw połącz się z eBay');
-      return;
-    }
-    
     setIsLoadingPolicies(true);
     setPoliciesError(null);
     
     try {
-      const response = await fetch(`${API_BASE}/policies`, {
-        headers: { 
-          'Authorization': `Bearer ${tokens.accessToken}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(data.error);
-      }
+      const data = await fetchPolicies();
       
       setPolicies({
         payment: data.paymentPolicies || [],
@@ -293,31 +268,11 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
   // ============ C) Lokalizacja ============
 
   const handleFetchLocations = async () => {
-    const tokens = getStoredTokens();
-    if (!tokens) {
-      setLocationError('Najpierw połącz się z eBay');
-      return;
-    }
-    
     setIsLoadingLocations(true);
     setLocationError(null);
     
     try {
-      const response = await fetch(`${API_BASE}/locations`, {
-        headers: { 
-          'Authorization': `Bearer ${tokens.accessToken}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(data.error);
-      }
+      const data = await fetchLocations();
       
       setLocations(data.locations || []);
       
@@ -339,38 +294,15 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings }) => {
       return;
     }
     
-    const tokens = getStoredTokens();
-    if (!tokens) {
-      setLocationError('Najpierw połącz się z eBay');
-      return;
-    }
-    
     setIsLoadingLocations(true);
     setLocationError(null);
     
     try {
-      const response = await fetch(`${API_BASE}/locations`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${tokens.accessToken}`
-        },
-        body: JSON.stringify({
-          merchantLocationKey: newLocationKey.trim(),
-          name: `Warehouse ${newLocationKey.trim()}`,
-          address: {
-            city: 'Berlin',
-            postalCode: '10115',
-            country: 'DE'
-          }
-        })
-      });
-      
-      const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(data.error);
-      }
+      await createLocation(
+        newLocationKey.trim(),
+        `Warehouse ${newLocationKey.trim()}`,
+        { city: 'Berlin', postalCode: '10115', country: 'DE' }
+      );
       
       // Refresh locations
       await handleFetchLocations();
