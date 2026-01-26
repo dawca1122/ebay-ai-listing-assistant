@@ -65,6 +65,16 @@ export default async function handler(req, res) {
       return handleTestConnection(req, res);
     }
     
+    // All policies (GET)
+    if (path === 'policies') {
+      return handleAllPolicies(req, res);
+    }
+    
+    // Locations (GET/POST)
+    if (path === 'locations') {
+      return handleLocations(req, res);
+    }
+    
     // Inventory routes
     if (path.startsWith('inventory/')) {
       return handleInventory(req, res, path);
@@ -95,10 +105,13 @@ export default async function handler(req, res) {
         'oauth/auth-url',
         'callback',
         'oauth/disconnect',
+        'test-connection',
+        'policies',
+        'policies/:type',
+        'locations',
         'inventory/:sku',
         'offer',
-        'offer/:offerId/publish',
-        'policies/:type'
+        'offer/:offerId/publish'
       ]
     });
     
@@ -619,7 +632,171 @@ async function handlePublishOffer(req, res, path) {
   }
 }
 
-// Handler: Policies
+// Handler: Get All Policies (payment, fulfillment, return)
+async function handleAllPolicies(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  // Get token from Authorization header
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization token' });
+  }
+  
+  const accessToken = authHeader.replace('Bearer ', '');
+  const { environment } = getEbayCredentials();
+  const apiBase = getEbayBaseUrl(environment);
+  
+  try {
+    // Fetch all three policy types in parallel
+    const [paymentRes, fulfillmentRes, returnRes] = await Promise.all([
+      fetch(`${apiBase}/sell/account/v1/payment_policy?marketplace_id=EBAY_DE`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      }),
+      fetch(`${apiBase}/sell/account/v1/fulfillment_policy?marketplace_id=EBAY_DE`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      }),
+      fetch(`${apiBase}/sell/account/v1/return_policy?marketplace_id=EBAY_DE`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      })
+    ]);
+    
+    const [paymentData, fulfillmentData, returnData] = await Promise.all([
+      paymentRes.json(),
+      fulfillmentRes.json(),
+      returnRes.json()
+    ]);
+    
+    // Transform to simple format
+    const paymentPolicies = (paymentData.paymentPolicies || []).map(p => ({
+      policyId: p.paymentPolicyId,
+      name: p.name,
+      description: p.description
+    }));
+    
+    const fulfillmentPolicies = (fulfillmentData.fulfillmentPolicies || []).map(p => ({
+      policyId: p.fulfillmentPolicyId,
+      name: p.name,
+      description: p.description
+    }));
+    
+    const returnPolicies = (returnData.returnPolicies || []).map(p => ({
+      policyId: p.returnPolicyId,
+      name: p.name,
+      description: p.description
+    }));
+    
+    return res.status(200).json({
+      paymentPolicies,
+      fulfillmentPolicies,
+      returnPolicies
+    });
+    
+  } catch (error) {
+    console.error('Get all policies error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// Handler: Locations (GET list, POST create)
+async function handleLocations(req, res) {
+  // Get token from Authorization header
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization token' });
+  }
+  
+  const accessToken = authHeader.replace('Bearer ', '');
+  const { environment } = getEbayCredentials();
+  const apiBase = getEbayBaseUrl(environment);
+  
+  if (req.method === 'GET') {
+    try {
+      const response = await fetch(`${apiBase}/sell/inventory/v1/location?limit=100`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        return res.status(response.status).json({ 
+          error: data.errors?.[0]?.message || 'Failed to fetch locations' 
+        });
+      }
+      
+      const locations = (data.locations || []).map(loc => ({
+        merchantLocationKey: loc.merchantLocationKey,
+        name: loc.name,
+        address: loc.location?.address
+      }));
+      
+      return res.status(200).json({ locations });
+      
+    } catch (error) {
+      console.error('Get locations error:', error);
+      return res.status(500).json({ error: error.message });
+    }
+  }
+  
+  if (req.method === 'POST') {
+    try {
+      const { merchantLocationKey, name, address } = req.body;
+      
+      if (!merchantLocationKey) {
+        return res.status(400).json({ error: 'merchantLocationKey is required' });
+      }
+      
+      const locationData = {
+        location: {
+          address: {
+            city: address?.city || 'Berlin',
+            postalCode: address?.postalCode || '10115',
+            country: address?.country || 'DE'
+          }
+        },
+        name: name || merchantLocationKey,
+        merchantLocationStatus: 'ENABLED',
+        locationTypes: ['WAREHOUSE']
+      };
+      
+      const response = await fetch(`${apiBase}/sell/inventory/v1/location/${encodeURIComponent(merchantLocationKey)}`, {
+        method: 'PUT',
+        headers: { 
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(locationData)
+      });
+      
+      if (response.status === 204) {
+        return res.status(200).json({ 
+          success: true, 
+          merchantLocationKey,
+          message: 'Location created/updated successfully' 
+        });
+      }
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        return res.status(response.status).json({ 
+          error: data.errors?.[0]?.message || 'Failed to create location' 
+        });
+      }
+      
+      return res.status(200).json({ success: true, data });
+      
+    } catch (error) {
+      console.error('Create location error:', error);
+      return res.status(500).json({ error: error.message });
+    }
+  }
+  
+  return res.status(405).json({ error: 'Method not allowed' });
+}
+
+// Handler: Policies (by type)
 async function handlePolicies(req, res, path) {
   const policyType = path.replace('policies/', '');
   const { environment } = getEbayCredentials();
