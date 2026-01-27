@@ -1250,8 +1250,21 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             fulfillmentPolicyId: settings.policies.fulfillmentPolicyId,
             paymentPolicyId: settings.policies.paymentPolicyId,
             returnPolicyId: settings.policies.returnPolicyId
+          },
+          // VAT 19% for Germany
+          tax: {
+            vatPercentage: 19,
+            applyTax: true
           }
         };
+
+        // Add store category if selected
+        if (product.shopCategory) {
+          (offerPayload as any).storeCategoryNames = [product.shopCategory];
+          console.log('🏪 Store category:', product.shopCategory);
+        }
+
+        console.log('📦 Offer payload:', offerPayload);
 
         const offerResponse = await fetch(`${API_BASE}/offer`, {
           method: 'POST',
