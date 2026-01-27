@@ -1782,7 +1782,9 @@ async function handleGetInventoryItemsDebug(req, res) {
     const inventoryData = await inventoryResponse.json();
     results.inventoryApi = {
       total: inventoryData.total,
-      status: inventoryResponse.status
+      status: inventoryResponse.status,
+      error: inventoryData.errors || inventoryData.error || null,
+      response: inventoryResponse.status !== 200 ? inventoryData : undefined
     };
     
     // 2. Get offers count
@@ -1797,7 +1799,9 @@ async function handleGetInventoryItemsDebug(req, res) {
     const offersData = await offersResponse.json();
     results.offersApi = {
       total: offersData.total,
-      status: offersResponse.status
+      status: offersResponse.status,
+      error: offersData.errors || offersData.error || null,
+      response: offersResponse.status !== 200 ? offersData : undefined
     };
     
     // 3. Get active listings via Fulfillment API (if available)
@@ -1819,26 +1823,20 @@ async function handleGetInventoryItemsDebug(req, res) {
       results.ordersApi = { error: e.message };
     }
     
-    // 4. Get all offers with status counts
-    const allOffersResponse = await fetch(`${apiBase}/sell/inventory/v1/offer?limit=200&offset=0`, {
+    // 4. Try without marketplace header
+    const inventoryResponse2 = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=1&offset=0`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
-        'Accept': 'application/json',
-        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+        'Accept': 'application/json'
       }
     });
-    const allOffersData = await allOffersResponse.json();
-    
-    const statusCounts = {};
-    if (allOffersData.offers) {
-      allOffersData.offers.forEach(offer => {
-        const status = offer.status || 'UNKNOWN';
-        statusCounts[status] = (statusCounts[status] || 0) + 1;
-      });
-    }
-    results.offerStatusCounts = statusCounts;
-    results.offersReturned = allOffersData.offers?.length || 0;
+    const inventoryData2 = await inventoryResponse2.json();
+    results.inventoryApiNoMarketplace = {
+      total: inventoryData2.total,
+      status: inventoryResponse2.status,
+      error: inventoryData2.errors || null
+    };
     
     console.log('[eBay Debug] Results:', JSON.stringify(results, null, 2));
     
