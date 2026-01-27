@@ -383,7 +383,8 @@ const EBAY_SCOPES = [
   'https://api.ebay.com/oauth/api_scope',                    // View public data
   'https://api.ebay.com/oauth/api_scope/sell.inventory',     // View and manage inventory
   'https://api.ebay.com/oauth/api_scope/sell.account',       // View and manage account
-  'https://api.ebay.com/oauth/api_scope/sell.fulfillment'    // View and manage orders
+  'https://api.ebay.com/oauth/api_scope/sell.fulfillment',   // View and manage orders
+  'https://api.ebay.com/oauth/api_scope/sell.stores'         // View and manage eBay Stores
 ];
 
 async function handleOAuthStart(req, res) {
@@ -976,25 +977,28 @@ async function handleStoreCategories(req, res) {
       console.log('[Store Categories] Got data:', JSON.stringify(data).slice(0, 500));
       
       // Parse categories from response - they come in hierarchical structure
+      // Response uses: storeCategories[].categoryName, childrenCategories
       const parseCategories = (categories, parentName = '') => {
         let result = [];
         for (const cat of (categories || [])) {
-          const fullName = parentName ? `${parentName} > ${cat.name}` : cat.name;
+          const catName = cat.categoryName || cat.name;
+          const fullName = parentName ? `${parentName} > ${catName}` : catName;
           result.push({
             categoryId: cat.categoryId,
-            name: cat.name,
+            name: catName,
             fullPath: fullName,
-            order: cat.order
+            order: cat.order,
+            level: cat.level
           });
           // Recurse into child categories (up to 3 levels supported)
-          if (cat.childCategories && cat.childCategories.length > 0) {
-            result = result.concat(parseCategories(cat.childCategories, fullName));
+          if (cat.childrenCategories && cat.childrenCategories.length > 0) {
+            result = result.concat(parseCategories(cat.childrenCategories, fullName));
           }
         }
         return result;
       };
       
-      const categories = parseCategories(data.categories || data.storeCategories || []);
+      const categories = parseCategories(data.storeCategories || []);
       
       return res.status(200).json({
         categories,
