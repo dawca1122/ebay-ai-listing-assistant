@@ -1446,8 +1446,13 @@ async function handleCreateOffer(req, res) {
   console.log('[eBay CreateOffer] Method:', req.method);
   console.log('[eBay CreateOffer] Body:', JSON.stringify(req.body, null, 2));
   
+  // Allow both POST and handle preflight OPTIONS
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed', receivedMethod: req.method });
+    return res.status(405).json({ error: 'Method not allowed', receivedMethod: req.method, hint: 'Use POST to create offer' });
   }
   
   try {
