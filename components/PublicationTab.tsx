@@ -115,45 +115,68 @@ const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, 
         throw new Error(errData.errors?.[0]?.message || `Inventory error ${invResponse.status}`);
       }
 
-      // Step 2: Create Offer
-      setCurrentStep('Tworzenie oferty...');
+      // Step 2: Check if offer exists, if not create one
+      setCurrentStep('Sprawdzanie oferty...');
       
-      offerPayload = {
-        sku: product.sku,
-        marketplaceId: EBAY_DE_CONSTANTS.MARKETPLACE_ID,
-        format: 'FIXED_PRICE',
-        listingDescription: product.descriptionHtml,
-        availableQuantity: product.quantity,
-        categoryId: product.ebayCategoryId,
-        merchantLocationKey: settings.policies.merchantLocationKey,
-        pricingSummary: {
-          price: {
-            value: product.priceGross.toFixed(2),
-            currency: EBAY_DE_CONSTANTS.CURRENCY
-          }
-        },
-        listingPolicies: {
-          fulfillmentPolicyId: settings.policies.fulfillmentPolicyId,
-          paymentPolicyId: settings.policies.paymentPolicyId,
-          returnPolicyId: settings.policies.returnPolicyId
-        }
-      };
-
-      const offerResponse = await fetch(`${API_BASE}/offer`, {
-        method: 'POST',
+      let offerId = '';
+      
+      // First check if offer already exists for this SKU
+      const existingOffersResponse = await fetch(`${API_BASE}/offers/${encodeURIComponent(product.sku)}`, {
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${tokens.accessToken}`
-        },
-        body: JSON.stringify(offerPayload)
+        }
       });
-
-      const offerData = await offerResponse.json();
-      if (!offerResponse.ok) {
-        throw new Error(offerData.errors?.[0]?.message || `Offer error ${offerResponse.status}`);
+      
+      if (existingOffersResponse.ok) {
+        const existingOffers = await existingOffersResponse.json();
+        if (existingOffers.offers && existingOffers.offers.length > 0) {
+          offerId = existingOffers.offers[0].offerId;
+          console.log('📦 Using existing offer:', offerId);
+        }
       }
+      
+      if (!offerId) {
+        setCurrentStep('Tworzenie oferty...');
+        
+        offerPayload = {
+          sku: product.sku,
+          marketplaceId: EBAY_DE_CONSTANTS.MARKETPLACE_ID,
+          format: 'FIXED_PRICE',
+          listingDescription: product.descriptionHtml,
+          availableQuantity: product.quantity,
+          categoryId: product.ebayCategoryId,
+          merchantLocationKey: settings.policies.merchantLocationKey,
+          pricingSummary: {
+            price: {
+              value: product.priceGross.toFixed(2),
+              currency: EBAY_DE_CONSTANTS.CURRENCY
+            }
+          },
+          listingPolicies: {
+            fulfillmentPolicyId: settings.policies.fulfillmentPolicyId,
+            paymentPolicyId: settings.policies.paymentPolicyId,
+            returnPolicyId: settings.policies.returnPolicyId
+          }
+        };
 
-      const offerId = offerData.offerId;
+        const offerResponse = await fetch(`${API_BASE}/offer`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${tokens.accessToken}`
+          },
+          body: JSON.stringify(offerPayload)
+        });
+
+        const offerData = await offerResponse.json();
+        if (!offerResponse.ok) {
+          throw new Error(offerData.errors?.[0]?.message || `Offer error ${offerResponse.status}`);
+        }
+
+        offerId = offerData.offerId;
+        console.log('✅ Created new offer:', offerId);
+      }
 
       // Step 3: Publish Offer
       setCurrentStep('Publikacja oferty...');

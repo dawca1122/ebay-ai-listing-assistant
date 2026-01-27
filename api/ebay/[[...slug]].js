@@ -208,6 +208,10 @@ export default async function handler(req, res) {
       return handleCreateOffer(req, res);
     }
     
+    if (path.startsWith('offers/')) {
+      return handleGetOffersBySku(req, res, path);
+    }
+    
     if (path.match(/^offer\/[^\/]+\/publish$/)) {
       return handlePublishOffer(req, res, path);
     }
@@ -1473,6 +1477,38 @@ async function handleCreateOffer(req, res) {
     });
     
     const data = await response.json();
+    return res.status(response.status).json(data);
+    
+  } catch (error) {
+    if (error.message === 'NOT_AUTHENTICATED') {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+async function handleGetOffersBySku(req, res, path) {
+  const sku = path.replace('offers/', '');
+  
+  try {
+    const { accessToken } = await getValidAccessToken(req, res);
+    const { environment } = getEbayCredentials();
+    const apiBase = getEbayBaseUrl(environment);
+    
+    console.log('[eBay GetOffers] SKU:', sku);
+    
+    const response = await fetch(`${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Accept-Language': 'de-DE',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+      }
+    });
+    
+    const data = await response.json();
+    console.log('[eBay GetOffers] Response:', JSON.stringify(data, null, 2));
     return res.status(response.status).json(data);
     
   } catch (error) {
