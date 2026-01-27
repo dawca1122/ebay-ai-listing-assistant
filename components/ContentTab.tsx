@@ -161,9 +161,14 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     }
   }, [onError]);
   
+  // Load once on mount (prevent double-loading in StrictMode)
   useEffect(() => {
-    loadInventoryItems();
-  }, [loadInventoryItems]);
+    let mounted = true;
+    if (mounted && inventoryItems.length === 0) {
+      loadInventoryItems();
+    }
+    return () => { mounted = false; };
+  }, []);
   
   // Reset page when switching views
   useEffect(() => {
