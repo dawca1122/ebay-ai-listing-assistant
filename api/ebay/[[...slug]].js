@@ -1443,8 +1443,11 @@ async function handleInventory(req, res, path) {
 }
 
 async function handleCreateOffer(req, res) {
+  console.log('[eBay CreateOffer] Method:', req.method);
+  console.log('[eBay CreateOffer] Body:', JSON.stringify(req.body, null, 2));
+  
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: 'Method not allowed', receivedMethod: req.method });
   }
   
   try {
