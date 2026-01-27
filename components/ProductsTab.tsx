@@ -1063,12 +1063,22 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
       try {
         setProcessingStep(`Publikacja: ${product.sku}...`);
 
+        // Extract brand and model from title/inputName for eBay aspects
+        const titleParts = (product.inputName || product.title).split(' ');
+        const brand = titleParts[0] || 'Unknown';
+        const model = titleParts.slice(1).join(' ') || product.inputName || 'Unknown';
+
         // Step 1: Create/Update Inventory Item
         inventoryPayload = {
           product: {
             title: product.title,
             description: product.descriptionHtml,
-            aspects: {},
+            aspects: {
+              'Marke': [brand],
+              'Modell': [model],
+              'EAN': [product.ean]
+            },
+            brand: brand,
             ean: [product.ean]
           },
           condition: product.condition === ProductCondition.NEW ? 'NEW' : 'USED_EXCELLENT',
