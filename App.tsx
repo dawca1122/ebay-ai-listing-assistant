@@ -5,6 +5,7 @@ import { Product, AppSettings, LogEntry, LogStage, EBAY_DE_CONSTANTS, DEFAULT_GE
 
 // Lazy load heavy components for code splitting
 const ProductsTab = lazy(() => import('./components/ProductsTab'));
+const ContentTab = lazy(() => import('./components/ContentTab'));
 const PricingTab = lazy(() => import('./components/PricingTab'));
 const PublicationTab = lazy(() => import('./components/PublicationTab'));
 const SettingsTab = lazy(() => import('./components/SettingsTab'));
@@ -207,6 +208,11 @@ const App: React.FC = () => {
                   ebayConnected={ebayStatus}
                   onError={handleError}
                   addLog={addLog}
+                />;
+      case 'content':
+        return <ContentTab 
+                  settings={settings}
+                  onError={handleError}
                 />;
       case 'pricing':
         return <PricingTab 

@@ -20,6 +20,7 @@ const Layout: React.FC<LayoutProps> = ({
 }) => {
   const tabs = [
     { id: 'products', label: 'Produkty' },
+    { id: 'content', label: 'Treści' },
     { id: 'pricing', label: 'Pricing' },
     { id: 'publication', label: 'Publikacja' },
     { id: 'debug', label: 'Debug' },

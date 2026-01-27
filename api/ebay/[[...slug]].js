@@ -204,6 +204,11 @@ export default async function handler(req, res) {
       return handleBrowseSearch(req, res);
     }
     
+    // Get all inventory items (paginated)
+    if (path === 'inventory-items') {
+      return handleGetInventoryItems(req, res);
+    }
+    
     if (path.startsWith('inventory/')) {
       return handleInventory(req, res, path);
     }
@@ -1708,6 +1713,50 @@ async function handlePublishOffer(req, res, path) {
     if (error.message === 'NOT_AUTHENTICATED') {
       return res.status(401).json({ error: 'Not authenticated' });
     }
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// ============ GET ALL INVENTORY ITEMS (PAGINATED) ============
+async function handleGetInventoryItems(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  try {
+    const { accessToken } = await getValidAccessToken(req, res);
+    const { environment } = getEbayCredentials();
+    const apiBase = getEbayBaseUrl(environment);
+    
+    // Get pagination params from query string
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const limit = url.searchParams.get('limit') || '25';
+    const offset = url.searchParams.get('offset') || '0';
+    
+    console.log('[eBay GetInventoryItems] Limit:', limit, 'Offset:', offset);
+    
+    const response = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=${limit}&offset=${offset}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+        'Content-Language': 'de-DE',
+        'Accept-Language': 'de-DE',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+      }
+    });
+    
+    const data = await response.json();
+    console.log('[eBay GetInventoryItems] Response status:', response.status);
+    console.log('[eBay GetInventoryItems] Total items:', data.total);
+    
+    return res.status(response.status).json(data);
+    
+  } catch (error) {
+    if (error.message === 'NOT_AUTHENTICATED') {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    console.error('[eBay GetInventoryItems] Error:', error);
     return res.status(500).json({ error: error.message });
   }
 }
