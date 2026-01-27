@@ -142,8 +142,14 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     setIsLoadingStoreCategories(true);
     try {
       const result = await fetchStoreCategories();
+      console.log('📂 Store categories result:', result);
       const cats = result.categories.map(c => c.name).filter(Boolean);
       setEbayStoreCategories(cats);
+      if (result.source === 'stores_api') {
+        console.log(`✅ Loaded ${cats.length} store categories from eBay`);
+      } else if (result.hint) {
+        console.warn('⚠️ Store categories:', result.hint);
+      }
     } catch (err) {
       console.warn('Failed to load store categories:', err);
     }
@@ -1236,13 +1242,25 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           {/* Filters */}
           <div className="flex gap-3 flex-1">
             <div>
-              <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Shop Category</label>
+              <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">
+                Shop Category 
+                {ebayConnected && (
+                  <button 
+                    onClick={loadStoreCategories}
+                    disabled={isLoadingStoreCategories}
+                    className="ml-2 text-teal-500 hover:text-teal-700"
+                    title="Odśwież kategorie z eBay"
+                  >
+                    {isLoadingStoreCategories ? '⏳' : '🔄'}
+                  </button>
+                )}
+              </label>
               <select 
                 value={filterShopCategory} 
                 onChange={(e) => setFilterShopCategory(e.target.value)}
                 className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs min-w-[120px]"
               >
-                <option value="">Wszystkie</option>
+                <option value="">Wszystkie ({shopCategories.length})</option>
                 {shopCategories.map(cat => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}

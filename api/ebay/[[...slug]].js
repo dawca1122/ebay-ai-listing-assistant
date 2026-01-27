@@ -958,85 +958,60 @@ async function handleStoreCategories(req, res) {
     const { environment } = getEbayCredentials();
     const apiBase = getEbayBaseUrl(environment);
     
-    // Get store configuration using Sell Account API
-    const response = await fetch(`${apiBase}/sell/account/v1/subscription`, {
+    console.log('[Store Categories] Fetching from Stores API...');
+    
+    // Use the new Stores API to get store categories
+    // https://developer.ebay.com/api-docs/sell/stores/resources/store/methods/getStoreCategories
+    const response = await fetch(`${apiBase}/sell/stores/v1/store/categories`, {
       headers: { 
         'Authorization': `Bearer ${accessToken}`,
         'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
       }
     });
     
-    // If subscription API fails, try to get categories from existing listings
-    if (!response.ok) {
-      // Fallback: Get categories from seller's active inventory
-      const inventoryResponse = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=100`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
+    console.log('[Store Categories] Response status:', response.status);
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log('[Store Categories] Got data:', JSON.stringify(data).slice(0, 500));
       
-      const inventoryData = await inventoryResponse.json();
-      
-      // Extract unique store categories from inventory items
-      const categories = new Set();
-      (inventoryData.inventoryItems || []).forEach(item => {
-        if (item.product?.aspects) {
-          // Try to find category-like aspects
-          Object.keys(item.product.aspects).forEach(key => {
-            if (key.toLowerCase().includes('category') || key.toLowerCase().includes('kategorie')) {
-              const values = item.product.aspects[key];
-              if (Array.isArray(values)) {
-                values.forEach(v => categories.add(v));
-              }
-            }
+      // Parse categories from response - they come in hierarchical structure
+      const parseCategories = (categories, parentName = '') => {
+        let result = [];
+        for (const cat of (categories || [])) {
+          const fullName = parentName ? `${parentName} > ${cat.name}` : cat.name;
+          result.push({
+            categoryId: cat.categoryId,
+            name: cat.name,
+            fullPath: fullName,
+            order: cat.order
           });
+          // Recurse into child categories (up to 3 levels supported)
+          if (cat.childCategories && cat.childCategories.length > 0) {
+            result = result.concat(parseCategories(cat.childCategories, fullName));
+          }
         }
-      });
+        return result;
+      };
       
-      // Also try to fetch from fulfillment policies which may indicate store structure
-      const policiesResponse = await fetch(`${apiBase}/sell/account/v1/fulfillment_policy?marketplace_id=EBAY_DE`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
+      const categories = parseCategories(data.categories || data.storeCategories || []);
       
-      // Return what we found
       return res.status(200).json({
-        categories: Array.from(categories).map(name => ({
-          name,
-          categoryId: name.toLowerCase().replace(/[^a-z0-9]/g, '-')
-        })),
-        source: 'inventory_fallback',
-        hint: 'Kategorie wyciągnięte z istniejących produktów. Dla pełnej listy kategorii sklepu eBay wymaga subskrypcji Store.'
+        categories,
+        source: 'stores_api',
+        total: categories.length
       });
     }
     
-    const subscriptionData = await response.json();
-    
-    // If user has a store, fetch store categories
-    if (subscriptionData.subscriptions?.some(s => s.programType === 'STORE')) {
-      // Try to get custom categories from item specifics or category aspects
-      const storeResponse = await fetch(`${apiBase}/sell/account/v1/custom_policy`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
-      
-      let customCategories = [];
-      if (storeResponse.ok) {
-        const storeData = await storeResponse.json();
-        customCategories = (storeData.customPolicies || []).map(p => ({
-          name: p.label,
-          categoryId: p.customPolicyId
-        }));
-      }
-      
-      return res.status(200).json({
-        categories: customCategories,
-        subscriptions: subscriptionData.subscriptions,
-        source: 'store_api'
-      });
-    }
+    // If Stores API fails (e.g., no store subscription), return empty with hint
+    const errorData = await response.json().catch(() => ({}));
+    console.log('[Store Categories] Error response:', errorData);
     
     return res.status(200).json({
       categories: [],
-      subscriptions: subscriptionData.subscriptions || [],
-      hint: 'Brak sklepu eBay lub kategorii niestandardowych. Możesz tworzyć własne kategorie w polu Shop Category.',
-      source: 'no_store'
+      source: 'no_store',
+      hint: 'Nie udało się pobrać kategorii sklepu. Sprawdź czy masz aktywną subskrypcję eBay Store.',
+      error: errorData.message || `HTTP ${response.status}`
     });
     
   } catch (error) {
