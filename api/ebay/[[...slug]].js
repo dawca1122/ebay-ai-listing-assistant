@@ -1418,6 +1418,7 @@ async function handleInventory(req, res, path) {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
         'Content-Language': 'de-DE',
+        'Accept-Language': 'de-DE',
         'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
       },
       body: req.method === 'PUT' ? JSON.stringify(req.body) : undefined
@@ -1456,7 +1457,9 @@ async function handleCreateOffer(req, res) {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'Content-Language': 'de-DE'
+        'Content-Language': 'de-DE',
+        'Accept-Language': 'de-DE',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
       },
       body: JSON.stringify(req.body)
     });
@@ -1495,6 +1498,7 @@ async function handlePublishOffer(req, res, path) {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
         'Content-Language': 'de-DE',
+        'Accept-Language': 'de-DE',
         'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
       }
     });
