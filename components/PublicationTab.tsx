@@ -97,10 +97,10 @@ const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, 
           description: product.descriptionHtml,
           aspects: {
             'Marke': [brand],
-            'Modell': [model],
-            'EAN': [product.ean]
+            'Modell': [model]
           },
           brand: brand,
+          mpn: model,
           ean: [product.ean]
         },
         condition: product.condition === ProductCondition.NEW ? 'NEW' : 'USED_EXCELLENT',

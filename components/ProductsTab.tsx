@@ -1075,10 +1075,10 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             description: product.descriptionHtml,
             aspects: {
               'Marke': [brand],
-              'Modell': [model],
-              'EAN': [product.ean]
+              'Modell': [model]
             },
             brand: brand,
+            mpn: model,
             ean: [product.ean]
           },
           condition: product.condition === ProductCondition.NEW ? 'NEW' : 'USED_EXCELLENT',
