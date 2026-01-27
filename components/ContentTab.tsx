@@ -346,6 +346,66 @@ Wygeneruj TYLKO nowy opis HTML.`;
       onError('Brak zmian do zapisania');
       return;
     }
+
+    let inventorySnapshot: any | undefined;
+    const loadInventorySnapshot = async () => {
+      if (inventorySnapshot !== undefined) return inventorySnapshot;
+      try {
+        const response = await fetch(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
+          method: 'GET',
+          credentials: 'include'
+        });
+        if (response.status === 404 || response.status === 204) {
+          console.warn(`[ContentTab] Inventory item ${sku} not found (status ${response.status})`);
+          inventorySnapshot = null;
+          return inventorySnapshot;
+        }
+        if (!response.ok) {
+          const errText = await response.text();
+          console.warn(`[ContentTab] Failed to load inventory item ${sku}:`, response.status, errText);
+          inventorySnapshot = null;
+          return inventorySnapshot;
+        }
+        inventorySnapshot = await response.json();
+        console.log('[ContentTab] Loaded inventory snapshot for', sku);
+        return inventorySnapshot;
+      } catch (error) {
+        console.warn('[ContentTab] Inventory snapshot error for', sku, error);
+        inventorySnapshot = null;
+        return inventorySnapshot;
+      }
+    };
+    const buildInventoryPayload = async () => {
+      const snapshot = await loadInventorySnapshot();
+      if (!snapshot) {
+        console.warn('[ContentTab] Missing snapshot for', sku, '- falling back to Trading API data');
+      }
+      const tradingProduct: any = item.product || {};
+      const mergedProduct: any = { ...(snapshot?.product || {}) };
+      mergedProduct.title = edits.title ?? snapshot?.product?.title ?? tradingProduct.title ?? item.title ?? sku;
+      const resolvedImages = edits.imageUrls ?? snapshot?.product?.imageUrls ?? tradingProduct.imageUrls ?? item.pictureUrls ?? [];
+      mergedProduct.imageUrls = Array.isArray(resolvedImages) ? resolvedImages : [resolvedImages].filter(Boolean);
+      if (!mergedProduct.aspects && tradingProduct.aspects) {
+        mergedProduct.aspects = tradingProduct.aspects;
+      }
+      if (!mergedProduct.description) {
+        mergedProduct.description = tradingProduct.description || item.description || undefined;
+      }
+      if (!mergedProduct.aspects || Object.keys(mergedProduct.aspects || {}).length === 0) {
+        console.warn(`[ContentTab] Inventory payload for ${sku} missing aspects`);
+      }
+      const availability = snapshot?.availability || item.availability || {
+        shipToLocationAvailability: { quantity: item.quantityAvailable ?? item.quantity ?? 1 }
+      };
+      const conditionFromAspects = Array.isArray(tradingProduct.aspects?.['Condition'])
+        ? tradingProduct.aspects['Condition'][0]
+        : undefined;
+      return {
+        condition: snapshot?.condition || conditionFromAspects || item.condition || 'NEW',
+        availability,
+        product: mergedProduct
+      };
+    };
     
     setIsSaving(prev => new Set(prev).add(sku));
     console.log('[ContentTab] === SAVING TO EBAY ===');
@@ -366,26 +426,14 @@ Wygeneruj TYLKO nowy opis HTML.`;
         
         // 1. Update inventory item (title, images)
         if (edits.title || edits.imageUrls) {
-          const currentItem = item.product || {};
-          
-          const inventoryPayload: any = {
-            condition: currentItem.aspects?.Condition?.[0] || 'NEW',
-            availability: item.availability || {
-              shipToLocationAvailability: { quantity: item.quantityAvailable || 1 }
-            },
-            product: {
-              title: edits.title ?? currentItem.title ?? item.title,
-              imageUrls: edits.imageUrls ?? currentItem.imageUrls ?? item.pictureUrls
-            }
-          };
-          
-          if (currentItem.brand) inventoryPayload.product.brand = currentItem.brand;
-          if (currentItem.mpn) inventoryPayload.product.mpn = currentItem.mpn;
-          if (currentItem.ean) inventoryPayload.product.ean = currentItem.ean;
-          if (currentItem.aspects) inventoryPayload.product.aspects = currentItem.aspects;
-          if (currentItem.description) inventoryPayload.product.description = currentItem.description;
-          
+          const inventoryPayload = await buildInventoryPayload();
+          if (!inventoryPayload) {
+            console.warn('[ContentTab] Inventory payload incomplete, skipping REST update');
+            shouldTryTradingApi = true;
+            throw new Error('INVENTORY_PAYLOAD_INCOMPLETE');
+          }
           console.log('[ContentTab] Sending inventory update for:', sku);
+          console.log('[ContentTab] Inventory payload includes aspects:', !!inventoryPayload.product?.aspects);
           
           const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
             method: 'PUT',
