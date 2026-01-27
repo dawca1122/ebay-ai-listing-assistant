@@ -1485,7 +1485,9 @@ async function handlePublishOffer(req, res, path) {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Content-Language': 'de-DE',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
       }
     });
     
