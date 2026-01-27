@@ -150,12 +150,13 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     setIsLoadingStoreCategories(false);
   };
 
-  // Get unique shop categories for filter (combine local + eBay)
+  // Get unique shop categories for filter (combine local products + eBay + settings)
   const shopCategories = useMemo(() => {
     const localCats = new Set(products.map(p => p.shopCategory).filter(Boolean));
-    const allCats = new Set([...localCats, ...ebayStoreCategories]);
+    const settingsCats = new Set(settings.storeCategories || []);
+    const allCats = new Set([...localCats, ...ebayStoreCategories, ...settingsCats]);
     return Array.from(allCats).sort();
-  }, [products, ebayStoreCategories]);
+  }, [products, ebayStoreCategories, settings.storeCategories]);
 
   // Filtered products
   const filteredProducts = useMemo(() => {

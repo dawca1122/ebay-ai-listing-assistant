@@ -1156,7 +1156,64 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
         </div>
       </section>
 
-      {/* ============ F) Firmowy Baner ============ */}
+      {/* ============ F) Kategorie Sklepu ============ */}
+      <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+        <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-slate-900">
+          <span className="p-2 bg-teal-100 rounded-xl text-teal-600">🏪</span> 
+          F) Kategorie Sklepu
+        </h2>
+        
+        <div className="space-y-6">
+          <p className="text-sm text-slate-500">
+            Dodaj własne kategorie sklepu. Te kategorie będą dostępne w kolumnie "Shop Cat" przy dodawaniu produktów.
+          </p>
+          
+          <div>
+            <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+              Kategorie (jedna na linię)
+            </label>
+            <textarea
+              value={(settings.storeCategories || []).join('\n')}
+              onChange={(e) => {
+                const categories = e.target.value.split('\n').map(c => c.trim()).filter(Boolean);
+                setSettings(prev => ({ ...prev, storeCategories: categories }));
+              }}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono h-48 resize-y"
+              placeholder={'Elektronika\nKomputery\nSmartwatche\nSłuchawki\nAkcesoria\n...'}
+            />
+          </div>
+          
+          <div className="flex flex-wrap gap-2">
+            {(settings.storeCategories || []).map((cat, idx) => (
+              <span key={idx} className="px-3 py-1 bg-teal-100 text-teal-700 rounded-full text-xs font-bold">
+                {cat}
+              </span>
+            ))}
+          </div>
+          
+          <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 text-xs text-teal-700">
+            <strong>💡 Wskazówki:</strong><br/>
+            • Kategorie te są używane wewnętrznie do organizacji produktów<br/>
+            • Pomagają w filtracji produktów na liście<br/>
+            • Nie są wysyłane do eBay - to tylko lokalna organizacja<br/>
+            • Każda linia = jedna kategoria
+          </div>
+          
+          <button 
+            onClick={handleSaveSettings}
+            disabled={saveStatus === 'saving'}
+            className={`px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+              saveStatus === 'saved' 
+                ? 'bg-green-100 text-green-700 border border-green-200'
+                : 'bg-teal-600 hover:bg-teal-700 text-white'
+            }`}
+          >
+            {saveStatus === 'saving' ? '⏳ Zapisywanie...' : saveStatus === 'saved' ? '✅ Zapisano!' : '💾 Zapisz kategorie'}
+          </button>
+        </div>
+      </section>
+
+      {/* ============ G) Firmowy Baner ============ */}
       <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
         <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-slate-900">
           <span className="p-2 bg-pink-100 rounded-xl text-pink-600">🎨</span> 

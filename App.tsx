@@ -50,7 +50,8 @@ const INITIAL_SETTINGS: AppSettings = {
     minGrossPrice: 1.00
   },
   vatRate: EBAY_DE_CONSTANTS.VAT_RATE,    // 19% VAT dla DE
-  companyBanner: DEFAULT_COMPANY_BANNER   // Firmowy baner HTML
+  companyBanner: DEFAULT_COMPANY_BANNER,  // Firmowy baner HTML
+  storeCategories: []                      // Własne kategorie sklepu
 };
 
 const App: React.FC = () => {

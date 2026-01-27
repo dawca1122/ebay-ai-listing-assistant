@@ -97,6 +97,7 @@ export interface AppSettings {
   pricingRules: PricingRules;
   vatRate: number;             // 0.19 dla DE (stałe)
   companyBanner: string;       // HTML baner firmowy dodawany do opisów
+  storeCategories: string[];   // Własne kategorie sklepu
 }
 
 // Domyślny baner firmowy
