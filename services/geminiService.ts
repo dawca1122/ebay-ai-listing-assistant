@@ -273,60 +273,56 @@ export const suggestCategory = async (
 
   const ai = new GoogleGenAI({ apiKey });
   
-  // Common eBay.de category IDs for reference:
-  // Electronics: 293 (Handys), 171485 (Smartwatches), 112529 (Kopfhörer), 48458 (TV)
-  // Home: 11700 (Haushaltsgeräte), 20710 (Möbel), 175750 (Garten)
-  // Fashion: 15724 (Kleidung), 95672 (Schuhe), 4250 (Uhren)
-  // Sports: 888 (Sport), 7294 (Fahrräder), 1492 (Golf)
-  // Toys: 220 (Spielzeug), 2613 (LEGO)
-  // Beauty: 26395 (Kosmetik), 67588 (Parfüm)
-  
-  const basePrompt = customPrompt || `Du bist ein eBay-Kategorisierungsexperte für eBay.de (Deutschland).
-Finde die passendste Kategorie-ID für das Produkt.
+  // Common eBay.de category IDs
+  const categoryReference = `
+Wichtige eBay.de Kategorien:
+- Kopfhörer/Headsets: 112529
+- Handys/Smartphones: 9355
+- Smartwatches: 178893
+- Tablets: 171485
+- Laptops/Notebooks: 177
+- Lautsprecher: 14990
+- HiFi/Audio: 3276
+- TV/Fernseher: 48458
+- Spielkonsolen: 139971
+- Videospiele: 139973
+- Küchengeräte: 20657
+- Staubsauger: 20614
+- Kaffeemaschinen: 38250
+- Fitness: 15273
+- LEGO: 19006
+- Spielzeug: 220
+`;
 
-Wichtige eBay.de Kategorien (nutze diese als Referenz):
-- Elektronik: Handys (9355), Kopfhörer (112529), Smartwatches (178893), Tablets (171485), Laptops (177)
-- Audio: Kopfhörer (112529), Lautsprecher (14990), HiFi (3276)
-- Haushalt: Küchenmaschinen (20657), Staubsauger (20614), Kaffee (38250)
-- Sport: Fitness (15273), Outdoor (16034), Camping (16034)
-- Mode: Herrenbekleidung (1059), Damenbekleidung (15724), Schuhe (95672)
-- Spielzeug: LEGO (19006), Actionfiguren (246), Spiele (233)
-
-Wähle die SPEZIFISCHSTE passende Kategorie.`;
-
-  const response = await ai.models.generateContent({
-    model: model || DEFAULT_MODEL,
-    contents: `${basePrompt}
+  const prompt = `Du bist eBay.de Kategorisierungsexperte.
+${categoryReference}
 
 Produkt: "${name}"
 
-Gib die 2 besten eBay.de Kategorien zurück mit:
-- id: Die numerische Kategorie-ID (z.B. "112529" für Kopfhörer)
-- name: Der deutsche Kategoriename
-- confidence: 'TOP1' oder 'TOP2'`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING },
-            name: { type: Type.STRING },
-            confidence: { type: Type.STRING }
-          },
-          required: ["id", "name", "confidence"]
-        }
-      }
-    }
-  });
+Finde die passendste eBay.de Kategorie-ID.
+Antworte NUR mit JSON Array: [{"id": "NUMMER", "name": "Kategoriename", "confidence": "TOP1"}]
+Beispiel: [{"id": "112529", "name": "Kopfhörer", "confidence": "TOP1"}]`;
 
   try {
-    const categories = JSON.parse(response.text || "[]");
-    console.log('📂 Found categories:', categories);
-    return categories;
+    const response = await ai.models.generateContent({
+      model: model || DEFAULT_MODEL,
+      contents: prompt
+    });
+
+    const text = response.text || "[]";
+    console.log('📂 Category raw response:', text);
+    
+    // Try to extract JSON from response
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const categories = JSON.parse(jsonMatch[0]);
+      console.log('📂 Found categories:', categories);
+      return categories;
+    }
+    
+    return [];
   } catch (e) {
-    console.error("Failed to parse category response", e);
+    console.error("Failed to get category:", e);
     return [];
   }
 };
