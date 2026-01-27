@@ -1716,15 +1716,17 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                       <td className="px-3 py-2">
                         <div className="flex gap-1">
                           <input 
-                            type="number"
-                            step="0.01"
+                            type="text"
                             value={p.priceGross}
                             onChange={(e) => {
-                              const gross = parseFloat(e.target.value) || 0;
+                              // Allow digits, dot, comma
+                              const val = e.target.value.replace(',', '.');
+                              const gross = parseFloat(val) || 0;
                               const net = parseFloat((gross / (1 + EBAY_DE_CONSTANTS.VAT_RATE)).toFixed(2));
                               updateProduct(p.id, { priceGross: gross, priceNet: net });
                             }}
                             className="flex-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded text-xs text-center font-bold text-blue-700 min-w-[50px]"
+                            placeholder="0.00"
                           />
                           <button
                             onClick={() => handleCheckProductPrice(p.id)}

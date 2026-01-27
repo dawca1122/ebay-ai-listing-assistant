@@ -273,17 +273,40 @@ export const suggestCategory = async (
 
   const ai = new GoogleGenAI({ apiKey });
   
-  const basePrompt = customPrompt || `Znajdź najlepszą kategorię eBay.de dla produktu.
-Zwróć ID kategorii z drzewa 77 (EBAY_DE).
-Wybierz najbardziej szczegółową pasującą kategorię.`;
+  // Use Google Search to find real eBay.de category IDs
+  const searchPrompt = `Wyszukaj dokładną kategorię eBay.de (Germany) dla produktu: "${name}"
+
+Szukaj na stronie eBay.de aby znaleźć prawidłowy numer ID kategorii (Category ID).
+Sprawdź stronę eBay.de/sch/ lub eBay Category ID lookup.
+Zwróć TYLKO rzeczywiste numery kategorii eBay.de (np. 182064, 80053, 15032 itp.).
+Nie wymyślaj numerów - znajdź prawdziwe ID z eBay.de.`;
+
+  // First, search for real category IDs
+  const searchResponse = await ai.models.generateContent({
+    model: RESEARCH_MODEL,
+    contents: searchPrompt,
+    config: {
+      tools: [{ googleSearch: {} }]
+    }
+  });
+  
+  const searchResults = searchResponse.text || '';
+  console.log('🔍 Category search results:', searchResults.substring(0, 500));
+
+  // Now extract structured data
+  const basePrompt = customPrompt || `Na podstawie wyników wyszukiwania, podaj dokładny ID kategorii eBay.de.`;
 
   const response = await ai.models.generateContent({
     model: model || DEFAULT_MODEL,
     contents: `${basePrompt}
 
-Product: "${name}"
+Produkt: "${name}"
 
-Return top 2 eBay categories with ID (number), Name, and confidence label ('TOP1' or 'TOP2').`,
+Wyniki wyszukiwania kategorii eBay.de:
+${searchResults}
+
+Zwróć top 2 kategorie eBay.de z prawdziwym ID (sam numer, np. "182064"), nazwą kategorii i pewnością ('TOP1' lub 'TOP2').
+Upewnij się że ID to prawdziwy numer kategorii eBay.de!`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -302,7 +325,9 @@ Return top 2 eBay categories with ID (number), Name, and confidence label ('TOP1
   });
 
   try {
-    return JSON.parse(response.text || "[]");
+    const categories = JSON.parse(response.text || "[]");
+    console.log('📂 Found categories:', categories);
+    return categories;
   } catch (e) {
     console.error("Failed to parse category response", e);
     return [];
