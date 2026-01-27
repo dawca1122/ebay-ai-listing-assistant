@@ -1131,9 +1131,20 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           return url; // Return original if not a Google Drive link
         };
 
-        const processedImages = (product.images || []).map(convertGoogleDriveUrl);
-        console.log('🖼️ Original images:', product.images);
-        console.log('🖼️ Processed images:', processedImages);
+        // Combine main imageUrl with additional images array
+        const allImages: string[] = [];
+        if (product.imageUrl && product.imageUrl.trim()) {
+          allImages.push(product.imageUrl.trim());
+        }
+        if (product.images && product.images.length > 0) {
+          allImages.push(...product.images);
+        }
+        
+        const processedImages = allImages.map(convertGoogleDriveUrl);
+        console.log('🖼️ Main imageUrl:', product.imageUrl);
+        console.log('🖼️ Additional images:', product.images);
+        console.log('🖼️ All images combined:', allImages);
+        console.log('🖼️ Processed images (Google Drive converted):', processedImages);
 
         // Step 1: Create/Update Inventory Item
         inventoryPayload = {
@@ -1155,7 +1166,6 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         };
 
         console.log('📦 Inventory payload aspects:', requiredAspects);
-        console.log('🖼️ Images:', product.images);
 
         const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(product.sku)}`, {
           method: 'PUT',
