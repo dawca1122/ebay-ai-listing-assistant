@@ -29,8 +29,18 @@ const extractSearchKeywords = (text: string): string => {
   return words.slice(0, 4).join(' ') || text.split(' ').slice(0, 3).join(' ');
 };
 
+// Helper: Get eBay link from itemId
+const getEbayLink = (itemId?: string) => {
+  if (!itemId) return null;
+  const parts = itemId.split('|');
+  const realId = parts.length === 3 ? parts[1] : itemId;
+  return `https://www.ebay.de/itm/${realId}`;
+};
+
 const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings, setSettings, onError, ebayConnected }) => {
   const [isChecking, setIsChecking] = useState(false);
+  const [competitionPreviewId, setCompetitionPreviewId] = useState<string | null>(null);
+  const [editedPrices, setEditedPrices] = useState<Record<string, number>>({});
   const pricingProducts = products.filter(p => p.status !== ProductStatus.PUBLISHED);
 
   const updateProduct = (id: string, updates: Partial<Product>) => {
@@ -120,7 +130,7 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
             </div>
             <button
               onClick={handleCheckAll}
-              disabled={isChecking || pricingProducts.length === 0 || !ebayConnected}
+              disabled={isChecking || pricingProducts.length === 0}
               className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black text-xs uppercase tracking-widest px-6 py-3 rounded-2xl shadow-lg transition-all"
             >
               {isChecking ? 'Sprawdzanie...' : 'Sprawdź ceny konkurencji'}
@@ -132,65 +142,103 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
               <thead className="sticky top-0 bg-white shadow-sm z-10 text-[9px] font-black uppercase text-slate-400 border-b border-slate-100">
                 <tr>
                   <th className="px-4 py-4">Produkt (SKU/EAN)</th>
-                  <th className="px-4 py-4">Kategoria</th>
-                  <th className="px-4 py-4 text-center">Min Total</th>
-                  <th className="px-4 py-4 text-center">Median Total</th>
-                  <th className="px-4 py-4 text-center">Twoja Sugestia</th>
+                  <th className="px-4 py-4 text-center">Min</th>
+                  <th className="px-4 py-4 text-center">Median</th>
+                  <th className="px-4 py-4 text-center">Oferty</th>
+                  <th className="px-4 py-4 text-center">Twoja Cena</th>
                   <th className="px-4 py-4">Zasada</th>
-                  <th className="px-4 py-4">Ostrzeżenia</th>
-                  <th className="px-4 py-4 text-right">Akcja</th>
+                  <th className="px-4 py-4 text-center">Akcje</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {pricingProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-20 text-center text-slate-400 italic">Brak produktów do wyceny.</td>
+                    <td colSpan={7} className="px-4 py-20 text-center text-slate-400 italic">Brak produktów do wyceny.</td>
                   </tr>
                 ) : (
-                  pricingProducts.map(p => (
+                  pricingProducts.map(p => {
+                    const hasEdited = editedPrices[p.id] !== undefined;
+                    const currentPrice = hasEdited ? editedPrices[p.id] : p.priceGross;
+                    const hasChanged = hasEdited && editedPrices[p.id] !== p.priceGross;
+                    
+                    return (
                     <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-4">
-                        <div className="font-bold truncate max-w-[150px]">{p.title || p.inputName}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">EAN: {p.ean}</div>
-                        <div className="text-[9px] text-blue-500 font-bold">SKU: {p.sku || '---'}</div>
+                      <td className="px-4 py-3">
+                        <div className="font-bold truncate max-w-[200px]">{p.title || p.inputName}</div>
+                        <div className="text-[10px] text-slate-400 font-mono">EAN: {p.ean} | SKU: {p.sku || '---'}</div>
                       </td>
-                      <td className="px-4 py-4 text-slate-500 italic max-w-[120px] truncate">{p.ebayCategoryName || '---'}</td>
-                      <td className="px-4 py-4 text-center">
-                        <span className="font-bold text-slate-700">{p.minTotalCompetition ? `${p.minTotalCompetition}€` : '---'}</span>
+                      <td className="px-4 py-3 text-center">
+                        <span className="font-bold text-green-600">{p.minTotalCompetition ? `${p.minTotalCompetition.toFixed(2)}€` : '---'}</span>
                       </td>
-                      <td className="px-4 py-4 text-center">
-                        <span className="font-bold text-slate-700">{p.medianTotalCompetition ? `${p.medianTotalCompetition}€` : '---'}</span>
+                      <td className="px-4 py-3 text-center">
+                        <span className="font-bold text-blue-600">{p.medianTotalCompetition ? `${p.medianTotalCompetition.toFixed(2)}€` : '---'}</span>
                       </td>
-                      <td className="px-4 py-4 text-center">
-                        <input 
-                          type="number" 
-                          value={p.priceGross}
-                          onChange={(e) => {
-                            const gross = parseFloat(e.target.value) || 0;
-                            updateProduct(p.id, { priceGross: gross, priceNet: parseFloat((gross / 1.19).toFixed(2)) });
-                          }}
-                          className="w-20 px-2 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 font-black text-center outline-none"
-                        />
+                      <td className="px-4 py-3 text-center">
+                        {p.competitorPrices && p.competitorPrices.length > 0 ? (
+                          <button
+                            onClick={() => setCompetitionPreviewId(p.id)}
+                            className="text-purple-600 hover:text-purple-800 underline text-xs font-bold"
+                          >
+                            👁️ {p.competitorPrices.length}
+                          </button>
+                        ) : (
+                          <span className="text-slate-300">---</span>
+                        )}
                       </td>
-                      <td className="px-4 py-4">
-                        <span className="text-[9px] font-bold text-slate-400">{p.pricingRuleApplied || 'Manual'}</span>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <input 
+                            type="number" 
+                            step="0.01"
+                            value={currentPrice}
+                            onChange={(e) => {
+                              const gross = parseFloat(e.target.value) || 0;
+                              setEditedPrices(prev => ({ ...prev, [p.id]: gross }));
+                            }}
+                            className={`w-20 px-2 py-1.5 border rounded-lg font-black text-center outline-none ${
+                              hasChanged 
+                                ? 'bg-yellow-50 border-yellow-400 text-yellow-700' 
+                                : 'bg-blue-50 border-blue-100 text-blue-600'
+                            }`}
+                          />
+                          {hasChanged && (
+                            <button
+                              onClick={() => {
+                                const gross = editedPrices[p.id];
+                                updateProduct(p.id, { 
+                                  priceGross: gross, 
+                                  priceNet: parseFloat((gross / 1.19).toFixed(2)),
+                                  pricingRuleApplied: 'Ręcznie'
+                                });
+                                setEditedPrices(prev => {
+                                  const next = { ...prev };
+                                  delete next[p.id];
+                                  return next;
+                                });
+                              }}
+                              className="px-2 py-1.5 bg-green-500 text-white rounded-lg text-xs font-bold hover:bg-green-600"
+                              title="Zapisz cenę"
+                            >
+                              ✓
+                            </button>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-4 py-4 max-w-[150px]">
-                        {p.pricingWarnings?.map((w, idx) => (
-                          <div key={idx} className="text-[8px] text-orange-600 font-medium leading-tight mb-1">⚠️ {w}</div>
-                        )) || <span className="text-green-500 text-[10px]">✅ OK</span>}
+                      <td className="px-4 py-3">
+                        <span className="text-[9px] font-bold text-slate-400">{p.pricingRuleApplied || 'Brak'}</span>
                       </td>
-                      <td className="px-4 py-4 text-right">
+                      <td className="px-4 py-3 text-center">
                         <button 
                           onClick={() => handleCheckCompetition(p.id)}
                           className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-blue-600 transition-colors"
-                          title="Przelicz ponownie"
+                          title="Sprawdź ceny konkurencji"
                         >
                           🔄
                         </button>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -246,12 +294,96 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
 
           <div className="pt-4 border-t border-slate-100">
             <div className="p-4 bg-blue-50 rounded-2xl text-[10px] text-blue-700 leading-relaxed italic">
-              AI sprawdza realne ceny na <strong>eBay.de</strong> (Item + Shipping). <br/><br/>
-              Propozycja ceny = (Min Konkurencja) - (Undercut), ale nie mniej niż (Floor).
+              <strong>Jak działa wycena:</strong><br/><br/>
+              1. Kliknij <strong>"Sprawdź ceny konkurencji"</strong> - pobieramy realne ceny z eBay.de<br/>
+              2. AI wyszukuje po EAN lub tytule produktu (tylko nowe/jak nowe)<br/>
+              3. <strong>Min</strong> = najtańsza oferta (cena + dostawa)<br/>
+              4. <strong>Median</strong> = środkowa wartość wszystkich ofert<br/><br/>
+              
+              <strong>Tryby Undercut:</strong><br/>
+              • <em>Najniższa cena</em>: Twoja cena = Min - Undercut<br/>
+              • <em>Mediana</em>: Twoja cena = Median - Undercut<br/>
+              • <em>Ręcznie</em>: Sam ustalasz cenę<br/><br/>
+              
+              Cena nigdy nie spadnie poniżej <strong>Ceny Minimalnej</strong>.
             </div>
           </div>
         </section>
       </div>
+
+      {/* Competition Preview Modal */}
+      {competitionPreviewId && (() => {
+        const product = products.find(p => p.id === competitionPreviewId);
+        if (!product || !product.competitorPrices) return null;
+        
+        const sortedByPrice = [...product.competitorPrices].sort((a, b) => a.totalPrice - b.totalPrice);
+        const top10 = sortedByPrice.slice(0, 10);
+        
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="font-black text-lg">Oferty konkurencji</h3>
+                  <p className="text-sm text-slate-500 truncate max-w-md">{product.title || product.inputName}</p>
+                </div>
+                <button 
+                  onClick={() => setCompetitionPreviewId(null)}
+                  className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto max-h-[60vh]">
+                <div className="space-y-3">
+                  {top10.map((offer, idx) => (
+                    <div key={idx} className={`p-4 rounded-2xl border ${idx === 0 ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-xs font-black px-2 py-0.5 rounded-full ${idx === 0 ? 'bg-green-500 text-white' : 'bg-slate-300 text-slate-600'}`}>
+                              #{idx + 1}
+                            </span>
+                            {offer.condition && (
+                              <span className="text-[10px] text-slate-400 italic">{offer.condition}</span>
+                            )}
+                          </div>
+                          <p className="text-sm font-medium text-slate-700 line-clamp-2">{offer.title || 'Brak tytułu'}</p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className={`font-black text-lg ${idx === 0 ? 'text-green-600' : 'text-slate-700'}`}>
+                            {offer.totalPrice.toFixed(2)}€
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {offer.price.toFixed(2)}€ + {offer.shipping.toFixed(2)}€
+                          </div>
+                          {offer.itemId && (
+                            <a 
+                              href={getEbayLink(offer.itemId)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] text-blue-600 hover:text-blue-800 underline"
+                            >
+                              Zobacz na eBay →
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                {product.competitorPrices.length > 10 && (
+                  <p className="mt-4 text-center text-xs text-slate-400">
+                    Pokazano 10 z {product.competitorPrices.length} ofert
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

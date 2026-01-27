@@ -538,7 +538,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         researchData
       );
       
-      // Add company banner if exists
+      // Add company banner once at the beginning
       let finalDescription = result.descriptionHtml || '';
       if (settings.companyBanner) {
         finalDescription = settings.companyBanner + '\n' + finalDescription;
@@ -715,7 +715,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           researchResult
         );
 
-        // Add company banner if exists
+        // Add company banner once at the beginning
         let finalDescription = result.descriptionHtml || '';
         if (settings.companyBanner) {
           finalDescription = settings.companyBanner + '\n' + finalDescription;
@@ -1593,7 +1593,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                           type="text"
                           value={p.ean}
                           onChange={(e) => updateProduct(p.id, { ean: e.target.value })}
-                          className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono"
+                          className="w-[120px] px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono"
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -1628,7 +1628,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                             type="text"
                             value={p.imageUrl || ''}
                             onChange={(e) => updateProduct(p.id, { imageUrl: e.target.value })}
-                            className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono"
+                            className="w-[180px] px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono truncate"
                             placeholder="https://..."
                           />
                           {p.imageUrl && (
@@ -1636,7 +1636,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                               href={p.imageUrl} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="text-blue-500 hover:text-blue-700 text-xs"
+                              className="text-blue-500 hover:text-blue-700 text-xs flex-shrink-0"
                               title="Podgląd"
                             >
                               🔗
@@ -1649,7 +1649,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                           type="number"
                           value={p.quantity}
                           onChange={(e) => updateProduct(p.id, { quantity: parseInt(e.target.value) || 0 })}
-                          className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs text-center"
+                          className="w-[50px] px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs text-center"
                           min={0}
                         />
                       </td>
@@ -1657,7 +1657,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                         <select 
                           value={p.condition}
                           onChange={(e) => updateProduct(p.id, { condition: e.target.value as ProductCondition })}
-                          className="w-full px-1 py-1 bg-slate-50 border border-slate-200 rounded text-xs"
+                          className="w-[70px] px-1 py-1 bg-slate-50 border border-slate-200 rounded text-xs"
                         >
                           <option value={ProductCondition.NEW}>NEW</option>
                           <option value={ProductCondition.USED}>USED</option>
