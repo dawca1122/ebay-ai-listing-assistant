@@ -78,10 +78,10 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
   const [editingImagesSku, setEditingImagesSku] = useState<string | null>(null);
   const [newImageUrl, setNewImageUrl] = useState('');
   
-  // Pagination
+  // Pagination - use 200 (max eBay limit) to get all items
   const [currentPage, setCurrentPage] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
-  const [itemsPerPage] = useState(25);
+  const [itemsPerPage] = useState(200);
   
   // Save instructions to localStorage
   useEffect(() => {
@@ -114,10 +114,12 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
       if (!response.ok) throw new Error(`Failed to load inventory: ${response.status}`);
       
       const data = await response.json();
-      console.log('[ContentTab] Loaded items:', data.inventoryItems?.length);
+      console.log('[ContentTab] Loaded items:', data.inventoryItems?.length, 'total:', data.total);
       
-      // Log offer statuses
+      // Log offer statuses and images
       data.inventoryItems?.forEach((item: EbayInventoryItem) => {
+        const imgCount = item.product?.imageUrls?.length || 0;
+        console.log(`[ContentTab] ${item.sku}: status=${item.offer?.status || 'NO OFFER'}, images=${imgCount}, title=${item.product?.title?.substring(0, 30)}...`);
         console.log(`[ContentTab] ${item.sku}: offer status = ${item.offer?.status || 'NO OFFER'}`);
       });
       

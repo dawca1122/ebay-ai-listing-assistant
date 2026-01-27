@@ -1765,10 +1765,11 @@ async function handleGetInventoryItems(req, res) {
     
     // Get pagination params from query string
     const url = new URL(req.url, `http://${req.headers.host}`);
-    const limit = url.searchParams.get('limit') || '25';
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '100'), 200);
     const offset = url.searchParams.get('offset') || '0';
+    const enrichOffers = url.searchParams.get('enrichOffers') !== 'false'; // default true
     
-    console.log('[eBay GetInventoryItems] Limit:', limit, 'Offset:', offset);
+    console.log('[eBay GetInventoryItems] Limit:', limit, 'Offset:', offset, 'EnrichOffers:', enrichOffers);
     
     // 1. Get inventory items
     const response = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=${limit}&offset=${offset}`, {
@@ -1784,57 +1785,63 @@ async function handleGetInventoryItems(req, res) {
     
     const data = await response.json();
     console.log('[eBay GetInventoryItems] Response status:', response.status);
-    console.log('[eBay GetInventoryItems] Total items:', data.total);
+    console.log('[eBay GetInventoryItems] Total items:', data.total, 'Returned:', data.inventoryItems?.length);
     
-    // 2. For each inventory item, fetch offer to get description and price
-    if (data.inventoryItems && data.inventoryItems.length > 0) {
-      const enrichedItems = await Promise.all(
-        data.inventoryItems.map(async (item) => {
-          try {
-            // Fetch offer for this SKU
-            const offerResponse = await fetch(
-              `${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(item.sku)}`,
-              {
-                method: 'GET',
-                headers: {
-                  'Authorization': `Bearer ${accessToken}`,
-                  'Content-Type': 'application/json',
-                  'Accept-Language': 'de-DE',
-                  'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+    // Log image counts
+    data.inventoryItems?.forEach(item => {
+      console.log(`[eBay GetInventoryItems] ${item.sku}: images=${item.product?.imageUrls?.length || 0}`);
+    });
+    
+    // 2. For each inventory item, fetch offer to get description and price (if enrichOffers)
+    if (enrichOffers && data.inventoryItems && data.inventoryItems.length > 0) {
+      // Limit concurrent requests to avoid timeout - do in batches of 10
+      const batchSize = 10;
+      const enrichedItems = [];
+      
+      for (let i = 0; i < data.inventoryItems.length; i += batchSize) {
+        const batch = data.inventoryItems.slice(i, i + batchSize);
+        const batchResults = await Promise.all(
+          batch.map(async (item) => {
+            try {
+              const offerResponse = await fetch(
+                `${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(item.sku)}`,
+                {
+                  method: 'GET',
+                  headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Accept-Language': 'de-DE',
+                    'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+                  }
+                }
+              );
+              
+              if (offerResponse.ok) {
+                const offerData = await offerResponse.json();
+                const offer = offerData.offers?.[0];
+                
+                if (offer) {
+                  return {
+                    ...item,
+                    offer: {
+                      offerId: offer.offerId,
+                      listingDescription: offer.listingDescription,
+                      pricingSummary: offer.pricingSummary,
+                      status: offer.status,
+                      listingId: offer.listing?.listingId
+                    }
+                  };
                 }
               }
-            );
-            
-            if (offerResponse.ok) {
-              const offerData = await offerResponse.json();
-              console.log(`[eBay GetInventoryItems] Offer for ${item.sku}:`, JSON.stringify(offerData).substring(0, 500));
-              const offer = offerData.offers?.[0];
-              
-              if (offer) {
-                console.log(`[eBay GetInventoryItems] Found offer ${offer.offerId}, description length: ${offer.listingDescription?.length || 0}`);
-                // Add offer data to inventory item
-                return {
-                  ...item,
-                  offer: {
-                    offerId: offer.offerId,
-                    listingDescription: offer.listingDescription,
-                    pricingSummary: offer.pricingSummary,
-                    listingPolicies: offer.listingPolicies,
-                    status: offer.status,
-                    listingId: offer.listing?.listingId
-                  }
-                };
-              }
-            } else {
-              console.log(`[eBay GetInventoryItems] No offer found for ${item.sku}, status: ${offerResponse.status}`);
+              return item;
+            } catch (err) {
+              console.log(`[eBay GetInventoryItems] Failed to get offer for ${item.sku}:`, err.message);
+              return item;
             }
-            return item;
-          } catch (err) {
-            console.log(`[eBay GetInventoryItems] Failed to get offer for ${item.sku}:`, err.message);
-            return item;
-          }
-        })
-      );
+          })
+        );
+        enrichedItems.push(...batchResults);
+      }
       
       data.inventoryItems = enrichedItems;
     }
