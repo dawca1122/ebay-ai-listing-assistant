@@ -714,10 +714,12 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
         </h2>
         
         <div className="space-y-6">
-          {/* API Key */}
+          {/* API Keys */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">Gemini API Key</label>
+              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                🔑 Klucz 1 - Research, Tytuł, Opis
+              </label>
               <input 
                 type="password" 
                 value={settings.geminiKey}
@@ -726,19 +728,31 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
                 placeholder="AIza..." 
               />
             </div>
-            <div className="flex items-end gap-2">
-              <button 
-                onClick={handleTestGemini}
-                disabled={isTestingGemini || !settings.geminiKey}
-                className={`px-6 py-3 rounded-xl text-sm font-bold transition-all ${
-                  isTestingGemini 
-                    ? 'bg-slate-100 text-slate-400 cursor-wait' 
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                }`}
-              >
-                {isTestingGemini ? "⏳ Testowanie..." : "🧪 Testuj Gemini"}
-              </button>
+            <div>
+              <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-1">
+                🔑 Klucz 2 - Kategorie, Ceny, Analiza
+              </label>
+              <input 
+                type="password" 
+                value={settings.geminiKey2 || ''}
+                onChange={(e) => setSettings(prev => ({ ...prev, geminiKey2: e.target.value }))}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" 
+                placeholder="AIza... (opcjonalnie - jeśli puste, użyje Klucz 1)" 
+              />
             </div>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={handleTestGemini}
+              disabled={isTestingGemini || !settings.geminiKey}
+              className={`px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+                isTestingGemini 
+                  ? 'bg-slate-100 text-slate-400 cursor-wait' 
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+              }`}
+            >
+              {isTestingGemini ? "⏳ Testowanie..." : "🧪 Testuj Klucz 1"}
+            </button>
           </div>
           
           {geminiTestResult && (

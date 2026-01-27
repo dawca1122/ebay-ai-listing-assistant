@@ -89,7 +89,8 @@ export interface AiRules {
 export interface AppSettings {
   ebay: EbayCredentials;
   policies: EbayPolicies;
-  geminiKey: string;
+  geminiKey: string;           // Klucz 1: Research, Title, Description
+  geminiKey2: string;          // Klucz 2: Kategorie, Ceny, Analiza
   geminiModels: GeminiModelSettings;  // Wybór modeli
   aiInstructions: AiInstructions;     // Instrukcje
   aiRules: AiRules;

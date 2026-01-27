@@ -34,6 +34,7 @@ const INITIAL_SETTINGS: AppSettings = {
     merchantLocationKey: ''
   },
   geminiKey: process.env.API_KEY || '',
+  geminiKey2: '',  // Klucz 2 dla kategorii i cen
   geminiModels: DEFAULT_GEMINI_MODELS,
   aiInstructions: DEFAULT_AI_INSTRUCTIONS,
   aiRules: {

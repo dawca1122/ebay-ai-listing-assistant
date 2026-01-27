@@ -628,7 +628,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     try {
       updateProduct(productId, { status: ProductStatus.AI_PROCESSING });
       
-      const result = await suggestCategory(searchTerm, settings.geminiKey);
+      // Użyj geminiKey2 dla kategorii jeśli dostępny, inaczej geminiKey
+      const categoryApiKey = settings.geminiKey2 || settings.geminiKey;
+      const result = await suggestCategory(categoryApiKey, searchTerm);
       if (result && result.length > 0) {
         const top = result[0];
         updateProduct(productId, { 
@@ -767,11 +769,14 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
     setIsProcessing(true);
     setProcessingStep('Dobieranie kategorii eBay...');
 
+    // Użyj geminiKey2 dla kategorii jeśli dostępny, inaczej geminiKey
+    const categoryApiKey = settings.geminiKey2 || settings.geminiKey;
+
     for (const product of selected) {
       try {
         const searchText = `${product.title || product.inputName} ${product.shopCategory}`;
         const results = await suggestCategory(
-          settings.geminiKey, 
+          categoryApiKey, 
           searchText,
           settings.geminiModels?.categorySearch,
           settings.aiInstructions?.categoryPrompt
