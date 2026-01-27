@@ -204,10 +204,10 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
       const autoMapping: Record<string, string> = {};
       IMPORTABLE_FIELDS.forEach(field => {
         const match = headers.find(h => {
-          const hLower = h.toLowerCase();
+          const hLower = h.toLowerCase().trim();
           if (field.key === 'ean') return hLower.includes('ean') || hLower.includes('gtin') || hLower.includes('barcode');
           if (field.key === 'inputName') return hLower.includes('name') || hLower.includes('nazwa') || hLower.includes('product') || hLower.includes('title') || hLower.includes('tytuł');
-          if (field.key === 'shopCategory') return hLower.includes('categ') || hLower.includes('kategor') || hLower.includes('shop cat') || hLower.includes('shop_cat') || hLower.includes('shopcat');
+          if (field.key === 'shopCategory') return hLower === 'shop cat' || hLower === 'shop category' || hLower === 'shopcategory' || hLower === 'shop_cat' || hLower === 'shopcat' || hLower.includes('categ') || hLower.includes('kategor');
           if (field.key === 'imageUrl') return hLower.includes('image') || hLower.includes('img') || hLower.includes('zdjęci') || hLower.includes('zdjec') || hLower.includes('bild') || hLower.includes('photo') || hLower.includes('url');
           if (field.key === 'sku') return hLower.includes('sku') || hLower.includes('artik');
           if (field.key === 'quantity') return hLower.includes('qty') || hLower.includes('quant') || hLower.includes('ilość') || hLower.includes('ilosc') || hLower.includes('menge');
