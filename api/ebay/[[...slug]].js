@@ -1534,6 +1534,7 @@ async function handleInventory(req, res, path) {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
+        'Accept-Language': 'de-DE',
         'Content-Language': 'de-DE',
         'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
       },
