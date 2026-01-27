@@ -538,14 +538,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         researchData
       );
       
-      // Add company banner once at the beginning
-      let finalDescription = result.descriptionHtml || '';
-      if (settings.companyBanner) {
-        finalDescription = settings.companyBanner + '\n' + finalDescription;
-      }
-      
+      // Banner is added only at display/export time, not during generation
       updateProduct(productId, { 
-        descriptionHtml: finalDescription,
+        descriptionHtml: result.descriptionHtml || '',
         keywords: result.keywords || '',
         status: ProductStatus.AI_DONE,
         lastError: ''
@@ -558,7 +553,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         stage: LogStage.AI,
         action: 'Generate Description',
         success: true,
-        responseBody: { descriptionLength: finalDescription.length }
+        responseBody: { descriptionLength: (result.descriptionHtml || '').length }
       });
       
     } catch (err: any) {
@@ -715,16 +710,11 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           researchResult
         );
 
-        // Add company banner once at the beginning
-        let finalDescription = result.descriptionHtml || '';
-        if (settings.companyBanner) {
-          finalDescription = settings.companyBanner + '\n' + finalDescription;
-        }
-
+        // Banner is added only at display/export time, not during generation
         updateProduct(product.id, {
           sku: product.sku ? `${product.sku}-${result.sku}` : result.sku, // Preserve user prefix
           title: result.title,
-          descriptionHtml: finalDescription,
+          descriptionHtml: result.descriptionHtml || '',
           keywords: result.keywords || '',
           status: ProductStatus.AI_DONE,
           lastError: ''

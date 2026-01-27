@@ -254,11 +254,8 @@ export const generateProductWithResearch = async (
     researchData
   );
   
-  // Krok 3: Dołącz firmowy baner NA POCZĄTKU opisu (jedyne miejsce gdzie baner jest dodawany)
-  if (options.companyBanner && productDetails.descriptionHtml) {
-    productDetails.descriptionHtml = options.companyBanner + '\n' + productDetails.descriptionHtml;
-    console.log('🎨 Company banner added to beginning of description');
-  }
+  // Note: Company banner is added at display/export time, not during generation
+  // This prevents duplicate banners when regenerating descriptions
   
   return {
     ...productDetails,
