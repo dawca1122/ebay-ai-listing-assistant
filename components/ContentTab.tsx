@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppSettings } from '../types';
 import { generateProductDetails } from '../services/geminiService';
 
-// Types for eBay inventory items
+// Types for eBay inventory items with offer data
 interface EbayInventoryItem {
   sku: string;
   product?: {
@@ -21,6 +20,16 @@ interface EbayInventoryItem {
       quantity?: number;
     };
   };
+  // Offer data from API enrichment
+  offer?: {
+    offerId?: string;
+    listingDescription?: string;
+    pricingSummary?: {
+      price?: { value?: string; currency?: string };
+    };
+    status?: string;
+    listingId?: string;
+  };
 }
 
 interface EditedProduct {
@@ -37,10 +46,25 @@ interface ContentTabProps {
 
 const API_BASE = '/api/ebay';
 
+// Storage keys
+const STORAGE_KEY_TITLE_INSTRUCTIONS = 'ebay_content_title_instructions';
+const STORAGE_KEY_DESC_INSTRUCTIONS = 'ebay_content_desc_instructions';
+
 const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
   const [inventoryItems, setInventoryItems] = useState<EbayInventoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  
+  // AI Instructions (local to this tab, stored in localStorage)
+  const [titleInstructions, setTitleInstructions] = useState(() => 
+    localStorage.getItem(STORAGE_KEY_TITLE_INSTRUCTIONS) || 
+    'Wygeneruj profesjonalny tytuł po niemiecku. Max 80 znaków. Zawrzyj markę i kluczowe cechy produktu. Bez wykrzykników.'
+  );
+  const [descInstructions, setDescInstructions] = useState(() =>
+    localStorage.getItem(STORAGE_KEY_DESC_INSTRUCTIONS) ||
+    'Wygeneruj profesjonalny opis produktu w HTML po niemiecku. Użyj nagłówków <h3>, list <ul><li>, pogrubień <strong>. Opisz cechy, specyfikację i korzyści.'
+  );
+  const [showInstructions, setShowInstructions] = useState(false);
   
   // Processing states for AI agents
   const [processingTitle, setProcessingTitle] = useState<Set<string>>(new Set());
@@ -61,6 +85,15 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
   const [totalItems, setTotalItems] = useState(0);
   const [itemsPerPage] = useState(25);
   
+  // Save instructions to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_TITLE_INSTRUCTIONS, titleInstructions);
+  }, [titleInstructions]);
+  
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_DESC_INSTRUCTIONS, descInstructions);
+  }, [descInstructions]);
+  
   // Load inventory items from eBay
   const loadInventoryItems = useCallback(async () => {
     setIsLoading(true);
@@ -76,6 +109,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
       }
       
       const data = await response.json();
+      console.log('[ContentTab] Loaded items:', data.inventoryItems?.length, 'with offers');
       setInventoryItems(data.inventoryItems || []);
       setTotalItems(data.total || 0);
       
@@ -90,7 +124,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     loadInventoryItems();
   }, [loadInventoryItems]);
   
-  // Get current value (edited or original)
+  // Get current value (edited or original) - description from offer!
   const getCurrentTitle = (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     return editedItems[sku]?.title ?? item?.product?.title ?? '';
@@ -98,12 +132,18 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
   
   const getCurrentDescription = (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
-    return editedItems[sku]?.description ?? item?.product?.description ?? '';
+    // Description comes from offer.listingDescription, NOT product.description
+    return editedItems[sku]?.description ?? item?.offer?.listingDescription ?? item?.product?.description ?? '';
   };
   
   const getCurrentImages = (sku: string): string[] => {
     const item = inventoryItems.find(i => i.sku === sku);
     return editedItems[sku]?.imageUrls ?? item?.product?.imageUrls ?? [];
+  };
+  
+  const getCurrentPrice = (sku: string): string => {
+    const item = inventoryItems.find(i => i.sku === sku);
+    return item?.offer?.pricingSummary?.price?.value ?? '';
   };
   
   // Update local edited value
@@ -117,7 +157,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     }));
   };
   
-  // AI Agent: Generate Title - uses existing product info
+  // AI Agent: Generate Title - uses existing product info + local instructions
   const handleGenerateTitle = async (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     if (!item) return;
@@ -125,33 +165,35 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     setProcessingTitle(prev => new Set(prev).add(sku));
     
     try {
-      // Get existing product info for context
       const existingTitle = item.product?.title || sku;
-      const existingDescription = item.product?.description || '';
+      const existingDescription = item.offer?.listingDescription || item.product?.description || '';
       const brand = item.product?.brand || '';
       const ean = item.product?.ean?.[0] || '';
       const aspects = item.product?.aspects ? JSON.stringify(item.product.aspects) : '';
       
-      // Build context from existing data
+      // Build context from existing data + use local instructions
       const contextInfo = `
+INSTRUKCJE DLA AI:
+${titleInstructions}
+
 ISTNIEJĄCE DANE PRODUKTU (użyj jako kontekst):
 - Aktualny tytuł: ${existingTitle}
 - Marka: ${brand}
 - EAN: ${ean}
-- Cechy: ${aspects}
-- Fragment opisu: ${existingDescription.substring(0, 500)}...
+- Cechy produktu: ${aspects}
+- Fragment opisu: ${existingDescription.substring(0, 800)}
 
-${settings.aiRules.titleRules || 'Max 80 znaków, niemiecki, profesjonalny.'}
+Wygeneruj TYLKO nowy tytuł (bez dodatkowych wyjaśnień).
 `;
       
       const result = await generateProductDetails(
         settings.geminiKey,
-        existingTitle,  // name
-        ean,            // ean
-        contextInfo,    // instructions with context
-        settings.geminiModels.titleDescription,  // model
-        settings.aiInstructions.titlePrompt,
-        settings.aiInstructions.descriptionPrompt
+        existingTitle,
+        ean,
+        contextInfo,
+        settings.geminiModels.titleDescription,
+        titleInstructions, // Use local instructions
+        descInstructions
       );
       
       if (result.title) {
@@ -168,7 +210,7 @@ ${settings.aiRules.titleRules || 'Max 80 znaków, niemiecki, profesjonalny.'}
     }
   };
   
-  // AI Agent: Generate Description - uses existing product info
+  // AI Agent: Generate Description - uses existing product info + local instructions
   const handleGenerateDescription = async (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     if (!item) return;
@@ -177,13 +219,16 @@ ${settings.aiRules.titleRules || 'Max 80 znaków, niemiecki, profesjonalny.'}
     
     try {
       const existingTitle = item.product?.title || sku;
-      const existingDescription = item.product?.description || '';
+      const existingDescription = item.offer?.listingDescription || item.product?.description || '';
       const brand = item.product?.brand || '';
       const ean = item.product?.ean?.[0] || '';
       const aspects = item.product?.aspects ? JSON.stringify(item.product.aspects) : '';
       
-      // Build rich context from existing data
+      // Build rich context from existing data + use local instructions
       const contextInfo = `
+INSTRUKCJE DLA AI:
+${descInstructions}
+
 ISTNIEJĄCE DANE PRODUKTU (użyj jako podstawę do nowego opisu):
 - Tytuł: ${existingTitle}
 - Marka: ${brand}
@@ -193,20 +238,19 @@ ISTNIEJĄCE DANE PRODUKTU (użyj jako podstawę do nowego opisu):
 AKTUALNY OPIS (przepisz i ulepsz w HTML):
 ${existingDescription}
 
-${settings.aiRules.descriptionRules || 'HTML, niemiecki, profesjonalny.'}
+${settings.companyBanner ? `DODAJ NA KONIEC OPISU TEN BANER FIRMOWY (bez zmian):\n${settings.companyBanner}` : ''}
 
-DODAJ NA KONIEC OPISU TEN BANER FIRMOWY (bez zmian):
-${settings.companyBanner || ''}
+Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
 `;
       
       const result = await generateProductDetails(
         settings.geminiKey,
-        existingTitle,  // name
-        ean,            // ean  
-        contextInfo,    // instructions with full context
-        settings.geminiModels.titleDescription,  // model
-        settings.aiInstructions.titlePrompt,
-        settings.aiInstructions.descriptionPrompt
+        existingTitle,
+        ean,
+        contextInfo,
+        settings.geminiModels.titleDescription,
+        titleInstructions,
+        descInstructions // Use local instructions
       );
       
       if (result.descriptionHtml) {
@@ -247,38 +291,54 @@ ${settings.companyBanner || ''}
     updateEditedValue(sku, 'imageUrls', currentImages);
   };
   
-  // Save changes to eBay
+  // Save changes to eBay - update both inventory AND offer
   const handleSaveToEbay = async (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     const edits = editedItems[sku];
     if (!item) return;
     
     try {
-      // Prepare updated inventory item
+      // 1. Update inventory item (title, images)
       const updatedProduct = {
         ...item.product,
         title: edits?.title ?? item.product?.title,
-        description: edits?.description ?? item.product?.description,
         imageUrls: edits?.imageUrls ?? item.product?.imageUrls
       };
       
-      const payload = {
+      const inventoryPayload = {
         ...item,
         product: updatedProduct
       };
+      delete (inventoryPayload as any).offer; // Remove offer from inventory payload
       
-      const response = await fetch(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
+      const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
         method: 'PUT',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(inventoryPayload)
       });
       
-      if (!response.ok && response.status !== 204) {
-        const errData = await response.json();
-        throw new Error(errData.errors?.[0]?.message || `Error ${response.status}`);
+      if (!invResponse.ok && invResponse.status !== 204) {
+        const errData = await invResponse.json();
+        throw new Error(errData.errors?.[0]?.message || `Inventory error ${invResponse.status}`);
+      }
+      
+      // 2. Update offer (description) if we have offer ID and description changed
+      if (item.offer?.offerId && edits?.description) {
+        const offerPayload = {
+          listingDescription: edits.description
+        };
+        
+        const offerResponse = await fetch(`${API_BASE}/offer/${item.offer.offerId}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(offerPayload)
+        });
+        
+        if (!offerResponse.ok && offerResponse.status !== 204) {
+          console.warn('[ContentTab] Failed to update offer description');
+        }
       }
       
       // Clear edits for this item and reload
@@ -288,7 +348,6 @@ ${settings.companyBanner || ''}
         return next;
       });
       
-      // Reload to get fresh data
       await loadInventoryItems();
       
     } catch (err: any) {
@@ -354,23 +413,70 @@ ${settings.companyBanner || ''}
           </p>
         </div>
         
-        <button
-          onClick={loadInventoryItems}
-          disabled={isLoading}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-400 flex items-center gap-2"
-        >
-          {isLoading ? (
-            <>
-              <span className="animate-spin">⟳</span>
-              Ładowanie...
-            </>
-          ) : (
-            <>
-              🔄 Odśwież z eBay
-            </>
-          )}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowInstructions(!showInstructions)}
+            className={`px-4 py-2 rounded-lg flex items-center gap-2 ${showInstructions ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+          >
+            ⚙️ Instrukcje AI
+          </button>
+          <button
+            onClick={loadInventoryItems}
+            disabled={isLoading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-400 flex items-center gap-2"
+          >
+            {isLoading ? (
+              <>
+                <span className="animate-spin">⟳</span>
+                Ładowanie...
+              </>
+            ) : (
+              <>
+                🔄 Odśwież z eBay
+              </>
+            )}
+          </button>
+        </div>
       </div>
+      
+      {/* AI Instructions Panel */}
+      {showInstructions && (
+        <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl p-6 space-y-4">
+          <h3 className="font-bold text-indigo-800 flex items-center gap-2">
+            🤖 Instrukcje dla AI
+          </h3>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-indigo-700 mb-1">
+                Instrukcje dla generowania TYTUŁÓW:
+              </label>
+              <textarea
+                value={titleInstructions}
+                onChange={(e) => setTitleInstructions(e.target.value)}
+                className="w-full h-32 text-sm border border-indigo-200 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="Opisz jak AI ma generować tytuły..."
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-purple-700 mb-1">
+                Instrukcje dla generowania OPISÓW:
+              </label>
+              <textarea
+                value={descInstructions}
+                onChange={(e) => setDescInstructions(e.target.value)}
+                className="w-full h-32 text-sm border border-purple-200 rounded-lg p-3 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                placeholder="Opisz jak AI ma generować opisy HTML..."
+              />
+            </div>
+          </div>
+          
+          <p className="text-xs text-slate-500">
+            💡 Te instrukcje są zapisywane lokalnie i używane przy każdym generowaniu. AI otrzymuje też dane produktu (tytuł, marka, EAN, cechy, aktualny opis) jako kontekst.
+          </p>
+        </div>
+      )}
       
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
@@ -433,7 +539,7 @@ ${settings.companyBanner || ''}
                 />
               </th>
               <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Zdjęcia</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">SKU / EAN</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">SKU / Cena</th>
               <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Tytuł</th>
               <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Opis</th>
               <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Akcje</th>
@@ -445,6 +551,8 @@ ${settings.companyBanner || ''}
               const isProcessingT = processingTitle.has(item.sku);
               const isProcessingD = processingDescription.has(item.sku);
               const images = getCurrentImages(item.sku);
+              const description = getCurrentDescription(item.sku);
+              const price = getCurrentPrice(item.sku);
               
               return (
                 <tr key={item.sku} className={`border-b border-slate-100 hover:bg-slate-50 ${hasEdits ? 'bg-yellow-50' : ''}`}>
@@ -483,14 +591,19 @@ ${settings.companyBanner || ''}
                     </button>
                   </td>
                   
-                  {/* SKU / EAN */}
+                  {/* SKU / Price */}
                   <td className="px-3 py-3">
                     <div className="font-mono text-sm text-slate-700 font-medium">{item.sku}</div>
+                    {price && (
+                      <div className="text-sm font-bold text-green-600 mt-1">
+                        {price} €
+                      </div>
+                    )}
                     <div className="text-xs text-slate-400">
                       {item.product?.ean?.[0] && `EAN: ${item.product.ean[0]}`}
                     </div>
                     <div className="text-xs text-slate-400">
-                      {item.product?.brand && `Marka: ${item.product.brand}`}
+                      {item.product?.brand && `${item.product.brand}`}
                     </div>
                   </td>
                   
@@ -520,12 +633,15 @@ ${settings.companyBanner || ''}
                   {/* Description */}
                   <td className="px-3 py-3">
                     <div 
-                      className="w-40 h-14 text-xs border border-slate-200 rounded p-1 overflow-hidden bg-slate-50 cursor-pointer hover:border-slate-400"
+                      className="w-48 h-16 text-xs border border-slate-200 rounded p-1 overflow-hidden bg-slate-50 cursor-pointer hover:border-slate-400"
                       onClick={() => setEditingDescriptionSku(item.sku)}
-                      dangerouslySetInnerHTML={{ 
-                        __html: getCurrentDescription(item.sku).substring(0, 150) + '...' 
-                      }}
-                    />
+                    >
+                      {description ? (
+                        <div dangerouslySetInnerHTML={{ __html: description.substring(0, 200) + '...' }} />
+                      ) : (
+                        <span className="text-slate-400 italic">Brak opisu - kliknij aby dodać</span>
+                      )}
+                    </div>
                     <button
                       onClick={() => handleGenerateDescription(item.sku)}
                       disabled={isProcessingD}
@@ -576,7 +692,7 @@ ${settings.companyBanner || ''}
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center">
                   <div className="animate-spin text-3xl">⟳</div>
-                  <div className="text-slate-400 mt-2">Ładowanie produktów z eBay...</div>
+                  <div className="text-slate-400 mt-2">Ładowanie produktów z eBay (może trwać dłużej - pobieram też opisy z ofert)...</div>
                 </td>
               </tr>
             )}
@@ -627,6 +743,7 @@ ${settings.companyBanner || ''}
               value={getCurrentDescription(editingDescriptionSku)}
               onChange={(e) => updateEditedValue(editingDescriptionSku, 'description', e.target.value)}
               className="w-full h-96 font-mono text-sm border border-slate-300 rounded-lg p-3"
+              placeholder="Wpisz opis HTML produktu..."
             />
             
             <div className="mt-4 p-4 bg-slate-50 rounded-lg">

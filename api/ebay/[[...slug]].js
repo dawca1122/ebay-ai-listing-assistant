@@ -1735,6 +1735,7 @@ async function handleGetInventoryItems(req, res) {
     
     console.log('[eBay GetInventoryItems] Limit:', limit, 'Offset:', offset);
     
+    // 1. Get inventory items
     const response = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=${limit}&offset=${offset}`, {
       method: 'GET',
       headers: {
@@ -1749,6 +1750,55 @@ async function handleGetInventoryItems(req, res) {
     const data = await response.json();
     console.log('[eBay GetInventoryItems] Response status:', response.status);
     console.log('[eBay GetInventoryItems] Total items:', data.total);
+    
+    // 2. For each inventory item, fetch offer to get description and price
+    if (data.inventoryItems && data.inventoryItems.length > 0) {
+      const enrichedItems = await Promise.all(
+        data.inventoryItems.map(async (item) => {
+          try {
+            // Fetch offer for this SKU
+            const offerResponse = await fetch(
+              `${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(item.sku)}`,
+              {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer ${accessToken}`,
+                  'Content-Type': 'application/json',
+                  'Accept-Language': 'de-DE',
+                  'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+                }
+              }
+            );
+            
+            if (offerResponse.ok) {
+              const offerData = await offerResponse.json();
+              const offer = offerData.offers?.[0];
+              
+              if (offer) {
+                // Add offer data to inventory item
+                return {
+                  ...item,
+                  offer: {
+                    offerId: offer.offerId,
+                    listingDescription: offer.listingDescription,
+                    pricingSummary: offer.pricingSummary,
+                    listingPolicies: offer.listingPolicies,
+                    status: offer.status,
+                    listingId: offer.listing?.listingId
+                  }
+                };
+              }
+            }
+            return item;
+          } catch (err) {
+            console.log(`[eBay GetInventoryItems] Failed to get offer for ${item.sku}:`, err.message);
+            return item;
+          }
+        })
+      );
+      
+      data.inventoryItems = enrichedItems;
+    }
     
     return res.status(response.status).json(data);
     
