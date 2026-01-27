@@ -1534,7 +1534,6 @@ async function handleInventory(req, res, path) {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'Accept-Language': 'de-DE',
         'Content-Language': 'de-DE',
         'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
       },
@@ -1652,7 +1651,6 @@ async function handleGetOffersBySkuQuery(req, res) {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
-        'Accept-Language': 'en-US',
         'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
       }
     });
@@ -1743,7 +1741,6 @@ async function handleDeleteOrUpdateOffer(req, res, path) {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
-          'Accept-Language': 'de-DE',
           'Content-Language': 'de-DE',
           'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
         },
