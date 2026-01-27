@@ -204,6 +204,11 @@ export default async function handler(req, res) {
       return handleBrowseSearch(req, res);
     }
     
+    // Debug: get raw inventory count
+    if (path === 'inventory-items-debug') {
+      return handleGetInventoryItemsDebug(req, res);
+    }
+    
     // Get all inventory items (paginated)
     if (path === 'inventory-items') {
       return handleGetInventoryItems(req, res);
@@ -1752,6 +1757,106 @@ async function handlePublishOffer(req, res, path) {
   }
 }
 
+// ============ DEBUG: GET INVENTORY COUNT FROM MULTIPLE APIs ============
+async function handleGetInventoryItemsDebug(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  try {
+    const { accessToken } = await getValidAccessToken(req, res);
+    const { environment } = getEbayCredentials();
+    const apiBase = getEbayBaseUrl(environment);
+    
+    const results = {};
+    
+    // 1. Get inventory items count (limit 1 to get total quickly)
+    const inventoryResponse = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=1&offset=0`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+      }
+    });
+    const inventoryData = await inventoryResponse.json();
+    results.inventoryApi = {
+      total: inventoryData.total,
+      status: inventoryResponse.status
+    };
+    
+    // 2. Get offers count
+    const offersResponse = await fetch(`${apiBase}/sell/inventory/v1/offer?limit=1&offset=0`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+      }
+    });
+    const offersData = await offersResponse.json();
+    results.offersApi = {
+      total: offersData.total,
+      status: offersResponse.status
+    };
+    
+    // 3. Get active listings via Fulfillment API (if available)
+    try {
+      const ordersResponse = await fetch(`${apiBase}/sell/fulfillment/v1/order?limit=1`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+        }
+      });
+      const ordersData = await ordersResponse.json();
+      results.ordersApi = {
+        total: ordersData.total,
+        status: ordersResponse.status
+      };
+    } catch (e) {
+      results.ordersApi = { error: e.message };
+    }
+    
+    // 4. Get all offers with status counts
+    const allOffersResponse = await fetch(`${apiBase}/sell/inventory/v1/offer?limit=200&offset=0`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+      }
+    });
+    const allOffersData = await allOffersResponse.json();
+    
+    const statusCounts = {};
+    if (allOffersData.offers) {
+      allOffersData.offers.forEach(offer => {
+        const status = offer.status || 'UNKNOWN';
+        statusCounts[status] = (statusCounts[status] || 0) + 1;
+      });
+    }
+    results.offerStatusCounts = statusCounts;
+    results.offersReturned = allOffersData.offers?.length || 0;
+    
+    console.log('[eBay Debug] Results:', JSON.stringify(results, null, 2));
+    
+    return res.status(200).json({
+      message: 'Debug info from eBay APIs',
+      environment,
+      results
+    });
+    
+  } catch (error) {
+    if (error.message === 'NOT_AUTHENTICATED') {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    console.error('[eBay Debug] Error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
 // ============ GET ALL INVENTORY ITEMS (PAGINATED) ============
 async function handleGetInventoryItems(req, res) {
   if (req.method !== 'GET') {
@@ -1762,6 +1867,7 @@ async function handleGetInventoryItems(req, res) {
     const { accessToken } = await getValidAccessToken(req, res);
     const { environment } = getEbayCredentials();
     const apiBase = getEbayBaseUrl(environment);
+    
     
     // Get pagination params from query string
     const url = new URL(req.url, `http://${req.headers.host}`);
