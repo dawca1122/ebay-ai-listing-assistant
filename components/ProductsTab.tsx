@@ -105,8 +105,22 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
   const [ebayStoreCategories, setEbayStoreCategories] = useState<string[]>([]);
   const [isLoadingStoreCategories, setIsLoadingStoreCategories] = useState(false);
   
-  // Research data storage (per product)
-  const [productResearchData, setProductResearchData] = useState<Record<string, string>>({});
+  // Research data storage (per product) - persist to localStorage
+  const [productResearchData, setProductResearchData] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('ebay_ai_research_data');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  
+  // Save research data to localStorage whenever it changes
+  useEffect(() => {
+    if (Object.keys(productResearchData).length > 0) {
+      localStorage.setItem('ebay_ai_research_data', JSON.stringify(productResearchData));
+    }
+  }, [productResearchData]);
   
   // Research preview modal
   const [researchPreviewId, setResearchPreviewId] = useState<string | null>(null);
@@ -1198,22 +1212,23 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         // Step 2: Check if offer exists - if yes DELETE it and create fresh one
         let offerId = '';
         
-        // First check if offer already exists for this SKU
-        const existingOffersResponse = await fetch(`${API_BASE}/offers/${encodeURIComponent(product.sku)}`, {
-          method: 'GET',
-          credentials: 'include'
-        });
-        
-        if (existingOffersResponse.ok) {
-          const existingOffers = await existingOffersResponse.json();
-          if (existingOffers.offers && existingOffers.offers.length > 0) {
-            // DELETE existing offer - it may have stale data (missing aspects etc)
-            const existingOfferId = existingOffers.offers[0].offerId;
-            console.log('🗑️ Deleting existing offer:', existingOfferId, '(may have stale aspects)');
-            
-            try {
-              const deleteResponse = await fetch(`${API_BASE}/offer/${existingOfferId}`, {
-                method: 'DELETE',
+        // First check if offer already exists for this SKU (404 is expected if no offer exists)
+        try {
+          const existingOffersResponse = await fetch(`${API_BASE}/offers/${encodeURIComponent(product.sku)}`, {
+            method: 'GET',
+            credentials: 'include'
+          });
+          
+          if (existingOffersResponse.ok) {
+            const existingOffers = await existingOffersResponse.json();
+            if (existingOffers.offers && existingOffers.offers.length > 0) {
+              // DELETE existing offer - it may have stale data (missing aspects etc)
+              const existingOfferId = existingOffers.offers[0].offerId;
+              console.log('🗑️ Deleting existing offer:', existingOfferId, '(may have stale aspects)');
+              
+              try {
+                const deleteResponse = await fetch(`${API_BASE}/offer/${existingOfferId}`, {
+                  method: 'DELETE',
                 credentials: 'include'
               });
               
@@ -1228,6 +1243,10 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
               console.warn('⚠️ Error deleting old offer:', delErr);
             }
           }
+        }
+        } catch (checkErr) {
+          // 404 is expected when no offer exists - silently ignore
+          console.log('ℹ️ No existing offer found (this is normal for new products)');
         }
         
         // Always create new offer (we deleted old one if existed)
