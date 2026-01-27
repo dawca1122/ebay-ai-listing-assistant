@@ -109,6 +109,8 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
   // Gemini test state
   const [isTestingGemini, setIsTestingGemini] = useState(false);
   const [geminiTestResult, setGeminiTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isTestingGemini2, setIsTestingGemini2] = useState(false);
+  const [gemini2TestResult, setGemini2TestResult] = useState<{ success: boolean; message: string } | null>(null);
   
   // Active AI tab
   const [activeAiTab, setActiveAiTab] = useState<'models' | 'instructions'>('models');
@@ -221,6 +223,47 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
     }
     
     setIsTestingGemini(false);
+  };
+
+  // ============ Gemini Key 2 Test ============
+  const handleTestGemini2 = async () => {
+    if (!settings.geminiKey2) {
+      setGemini2TestResult({ success: false, message: 'Brak klucza API Gemini 2' });
+      return;
+    }
+    
+    setIsTestingGemini2(true);
+    setGemini2TestResult(null);
+    
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: settings.geminiKey2 });
+      const model = settings.geminiModels?.categorySearch || 'gemini-2.5-flash';
+      
+      const response = await ai.models.generateContent({
+        model,
+        contents: 'Odpowiedz tylko: OK',
+      });
+      
+      if (response.text?.includes('OK')) {
+        setGemini2TestResult({ 
+          success: true, 
+          message: `✅ Klucz 2 OK! Model: ${model}` 
+        });
+      } else {
+        setGemini2TestResult({ 
+          success: true, 
+          message: `✅ Gemini 2 odpowiedział: "${response.text?.slice(0, 50)}..."` 
+        });
+      }
+    } catch (error: any) {
+      setGemini2TestResult({ 
+        success: false, 
+        message: `❌ Błąd: ${error.message}` 
+      });
+    }
+    
+    setIsTestingGemini2(false);
   };
 
   const handleConnectEbay = () => {
@@ -741,7 +784,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
               />
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button 
               onClick={handleTestGemini}
               disabled={isTestingGemini || !settings.geminiKey}
@@ -753,6 +796,17 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
             >
               {isTestingGemini ? "⏳ Testowanie..." : "🧪 Testuj Klucz 1"}
             </button>
+            <button 
+              onClick={handleTestGemini2}
+              disabled={isTestingGemini2 || !settings.geminiKey2}
+              className={`px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+                isTestingGemini2 
+                  ? 'bg-slate-100 text-slate-400 cursor-wait' 
+                  : 'bg-purple-600 hover:bg-purple-700 text-white'
+              }`}
+            >
+              {isTestingGemini2 ? "⏳ Testowanie..." : "🧪 Testuj Klucz 2"}
+            </button>
           </div>
           
           {geminiTestResult && (
@@ -762,6 +816,16 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, setSettings, onEbay
                 : 'bg-red-50 border-red-200 text-red-700'
             } text-sm`}>
               {geminiTestResult.message}
+            </div>
+          )}
+          
+          {gemini2TestResult && (
+            <div className={`p-3 rounded-xl border ${
+              gemini2TestResult.success 
+                ? 'bg-green-50 border-green-200 text-green-700' 
+                : 'bg-red-50 border-red-200 text-red-700'
+            } text-sm`}>
+              {gemini2TestResult.message}
             </div>
           )}
           
