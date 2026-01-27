@@ -1408,21 +1408,29 @@ async function handleInventory(req, res, path) {
     const { environment } = getEbayCredentials();
     const apiBase = getEbayBaseUrl(environment);
     
+    console.log('[eBay Inventory] SKU:', sku);
+    console.log('[eBay Inventory] Method:', req.method);
+    console.log('[eBay Inventory] Body:', JSON.stringify(req.body, null, 2));
+    
     const response = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
       method: req.method,
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'Content-Language': 'de-DE'
+        'Content-Language': 'de-DE',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
       },
       body: req.method === 'PUT' ? JSON.stringify(req.body) : undefined
     });
+    
+    console.log('[eBay Inventory] Response status:', response.status);
     
     if (response.status === 204) {
       return res.status(204).end();
     }
     
     const data = await response.json();
+    console.log('[eBay Inventory] Response data:', JSON.stringify(data, null, 2));
     return res.status(response.status).json(data);
     
   } catch (error) {
