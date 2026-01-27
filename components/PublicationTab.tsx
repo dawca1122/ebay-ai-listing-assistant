@@ -368,7 +368,7 @@ const PublicationTab: React.FC<PublicationTabProps> = ({ products, setProducts, 
                         </div>
                       </div>
                       
-                      <h3 className="font-black text-xl mb-4 leading-tight group-hover:text-blue-600 transition-colors">{product.title}</h3>
+                      <h3 className="font-black text-2xl mb-4 leading-tight group-hover:text-blue-600 transition-colors">{product.title}</h3>
                       
                       <div className="grid grid-cols-2 gap-4 mb-6">
                         <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
