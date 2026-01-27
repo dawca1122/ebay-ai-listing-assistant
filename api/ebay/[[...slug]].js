@@ -1702,8 +1702,8 @@ async function handleDeleteOrUpdateOffer(req, res, path) {
     }
     
     if (req.method === 'PUT') {
-      console.log('[eBay Offer] Updating offer:', offerId);
-      console.log('[eBay Offer] Update payload:', JSON.stringify(req.body));
+      console.log('[eBay Offer] V2 Updating offer:', offerId);
+      console.log('[eBay Offer] V2 Update payload:', JSON.stringify(req.body));
       
       // First, get the current offer to have full data
       const getResponse = await fetch(`${apiBase}/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`, {
