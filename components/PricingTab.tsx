@@ -316,7 +316,7 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
         const product = products.find(p => p.id === competitionPreviewId);
         if (!product || !product.competitorPrices) return null;
         
-        const sortedByPrice = [...product.competitorPrices].sort((a, b) => a.totalPrice - b.totalPrice);
+        const sortedByPrice = [...product.competitorPrices].sort((a, b) => a.total - b.total);
         const top10 = sortedByPrice.slice(0, 10);
         
         return (
@@ -324,8 +324,11 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden">
               <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                 <div>
-                  <h3 className="font-black text-lg">Oferty konkurencji</h3>
+                  <h3 className="font-black text-lg">🏷️ Oferty konkurencji (tylko nowe)</h3>
                   <p className="text-sm text-slate-500 truncate max-w-md">{product.title || product.inputName}</p>
+                  <p className="text-xs text-green-600 font-bold mt-1">
+                    Min: {product.minTotalCompetition?.toFixed(2)}€ | Median: {product.medianTotalCompetition?.toFixed(2)}€
+                  </p>
                 </div>
                 <button 
                   onClick={() => setCompetitionPreviewId(null)}
@@ -345,15 +348,16 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
                             <span className={`text-xs font-black px-2 py-0.5 rounded-full ${idx === 0 ? 'bg-green-500 text-white' : 'bg-slate-300 text-slate-600'}`}>
                               #{idx + 1}
                             </span>
-                            {offer.condition && (
-                              <span className="text-[10px] text-slate-400 italic">{offer.condition}</span>
-                            )}
+                            <span className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-600 rounded-full font-bold">
+                              📦 {offer.condition || 'Neu'}
+                            </span>
                           </div>
                           <p className="text-sm font-medium text-slate-700 line-clamp-2">{offer.title || 'Brak tytułu'}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">👤 {offer.seller || 'Nieznany sprzedawca'}</p>
                         </div>
                         <div className="text-right flex-shrink-0">
                           <div className={`font-black text-lg ${idx === 0 ? 'text-green-600' : 'text-slate-700'}`}>
-                            {offer.totalPrice.toFixed(2)}€
+                            {offer.total.toFixed(2)}€
                           </div>
                           <div className="text-[10px] text-slate-400">
                             {offer.price.toFixed(2)}€ + {offer.shipping.toFixed(2)}€
@@ -363,9 +367,9 @@ const PricingTab: React.FC<PricingTabProps> = ({ products, setProducts, settings
                               href={getEbayLink(offer.itemId)}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-[10px] text-blue-600 hover:text-blue-800 underline"
+                              className="inline-block mt-1 text-[10px] text-blue-600 hover:text-blue-800 underline font-bold"
                             >
-                              Zobacz na eBay →
+                              🔗 eBay
                             </a>
                           )}
                         </div>
