@@ -281,12 +281,26 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         const priceGross = parseFloat(priceStr.replace(',', '.')) || 0;
         const priceNet = parseFloat((priceGross / (1 + EBAY_DE_CONSTANTS.VAT_RATE)).toFixed(2));
         
+        // Parse multiple image URLs from single cell (separated by newline, comma, semicolon, or space)
+        const imageUrlRaw = getValue('imageUrl');
+        const allImageUrls = imageUrlRaw
+          .split(/[\n\r,;]+/)  // Split by newline, comma, semicolon
+          .map(url => url.trim())
+          .filter(url => url.length > 0 && (url.startsWith('http') || url.startsWith('drive.google')));
+        
+        // First URL goes to imageUrl (main), rest to images array
+        const mainImageUrl = allImageUrls[0] || '';
+        const additionalImages = allImageUrls.slice(1);
+        
+        console.log('🖼️ Import images from cell:', { raw: imageUrlRaw, parsed: allImageUrls, main: mainImageUrl, additional: additionalImages });
+        
         newItems.push({
           id: crypto.randomUUID().split('-')[0],
           ean,
           inputName,
           shopCategory: getValue('shopCategory'),
-          imageUrl: getValue('imageUrl'),
+          imageUrl: mainImageUrl,
+          images: additionalImages,
           quantity: parseInt(getValue('quantity')) || 1,
           condition: ProductCondition.NEW,
           sku: getValue('sku'), // User prefix, AI will complete
