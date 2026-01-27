@@ -20,7 +20,6 @@ interface EbayInventoryItem {
       quantity?: number;
     };
   };
-  // Offer data from API enrichment
   offer?: {
     offerId?: string;
     listingDescription?: string;
@@ -36,7 +35,6 @@ interface EditedProduct {
   title?: string;
   description?: string;
   imageUrls?: string[];
-  price?: string;
 }
 
 interface ContentTabProps {
@@ -45,38 +43,38 @@ interface ContentTabProps {
 }
 
 const API_BASE = '/api/ebay';
-
-// Storage keys
 const STORAGE_KEY_TITLE_INSTRUCTIONS = 'ebay_content_title_instructions';
 const STORAGE_KEY_DESC_INSTRUCTIONS = 'ebay_content_desc_instructions';
 
 const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
+  // View mode: 'active' or 'ended'
+  const [viewMode, setViewMode] = useState<'active' | 'ended'>('active');
+  
   const [inventoryItems, setInventoryItems] = useState<EbayInventoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState<Set<string>>(new Set());
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   
-  // AI Instructions (local to this tab, stored in localStorage)
+  // AI Instructions
   const [titleInstructions, setTitleInstructions] = useState(() => 
     localStorage.getItem(STORAGE_KEY_TITLE_INSTRUCTIONS) || 
-    'Wygeneruj profesjonalny tytuł po niemiecku. Max 80 znaków. Zawrzyj markę i kluczowe cechy produktu. Bez wykrzykników.'
+    'Wygeneruj profesjonalny tytuł po niemiecku. Max 80 znaków. Zawrzyj markę i kluczowe cechy produktu.'
   );
   const [descInstructions, setDescInstructions] = useState(() =>
     localStorage.getItem(STORAGE_KEY_DESC_INSTRUCTIONS) ||
-    'Wygeneruj profesjonalny opis produktu w HTML po niemiecku. Użyj nagłówków <h3>, list <ul><li>, pogrubień <strong>. Opisz cechy, specyfikację i korzyści.'
+    'Wygeneruj profesjonalny opis produktu w HTML po niemiecku. Użyj nagłówków <h3>, list <ul><li>, pogrubień <strong>.'
   );
   const [showInstructions, setShowInstructions] = useState(false);
   
-  // Processing states for AI agents
+  // Processing states
   const [processingTitle, setProcessingTitle] = useState<Set<string>>(new Set());
   const [processingDescription, setProcessingDescription] = useState<Set<string>>(new Set());
   
-  // Edited values (local state before saving to eBay)
+  // Edited values
   const [editedItems, setEditedItems] = useState<Record<string, EditedProduct>>({});
   
-  // Modal for editing description
+  // Modals
   const [editingDescriptionSku, setEditingDescriptionSku] = useState<string | null>(null);
-  
-  // Modal for managing images
   const [editingImagesSku, setEditingImagesSku] = useState<string | null>(null);
   const [newImageUrl, setNewImageUrl] = useState('');
   
@@ -94,7 +92,16 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     localStorage.setItem(STORAGE_KEY_DESC_INSTRUCTIONS, descInstructions);
   }, [descInstructions]);
   
-  // Load inventory items from eBay
+  // Filter items based on view mode
+  const activeItems = inventoryItems.filter(item => 
+    item.offer?.status === 'PUBLISHED' || item.offer?.status === 'ACTIVE'
+  );
+  const endedItems = inventoryItems.filter(item => 
+    !item.offer || item.offer?.status === 'ENDED' || item.offer?.status === 'UNPUBLISHED'
+  );
+  const displayedItems = viewMode === 'active' ? activeItems : endedItems;
+  
+  // Load inventory items
   const loadInventoryItems = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -104,17 +111,20 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
         credentials: 'include'
       });
       
-      if (!response.ok) {
-        throw new Error(`Failed to load inventory: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`Failed to load inventory: ${response.status}`);
       
       const data = await response.json();
-      console.log('[ContentTab] Loaded items:', data.inventoryItems?.length, 'with offers');
+      console.log('[ContentTab] Loaded items:', data.inventoryItems?.length);
+      
+      // Log offer statuses
+      data.inventoryItems?.forEach((item: EbayInventoryItem) => {
+        console.log(`[ContentTab] ${item.sku}: offer status = ${item.offer?.status || 'NO OFFER'}`);
+      });
+      
       setInventoryItems(data.inventoryItems || []);
       setTotalItems(data.total || 0);
-      
     } catch (err: any) {
-      onError(`Błąd ładowania produktów z eBay: ${err.message}`);
+      onError(`Błąd ładowania: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -124,7 +134,13 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     loadInventoryItems();
   }, [loadInventoryItems]);
   
-  // Get current value (edited or original) - description from offer!
+  // Reset page when switching views
+  useEffect(() => {
+    setCurrentPage(0);
+    setSelectedItems(new Set());
+  }, [viewMode]);
+  
+  // Getters for current values
   const getCurrentTitle = (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     return editedItems[sku]?.title ?? item?.product?.title ?? '';
@@ -132,7 +148,6 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
   
   const getCurrentDescription = (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
-    // Description comes from offer.listingDescription, NOT product.description
     return editedItems[sku]?.description ?? item?.offer?.listingDescription ?? item?.product?.description ?? '';
   };
   
@@ -146,24 +161,20 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     return item?.offer?.pricingSummary?.price?.value ?? '';
   };
   
-  // Update local edited value
+  // Update edited value
   const updateEditedValue = (sku: string, field: keyof EditedProduct, value: any) => {
     setEditedItems(prev => ({
       ...prev,
-      [sku]: {
-        ...prev[sku],
-        [field]: value
-      }
+      [sku]: { ...prev[sku], [field]: value }
     }));
   };
   
-  // AI Agent: Generate Title - uses existing product info + local instructions
+  // AI Generate Title
   const handleGenerateTitle = async (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     if (!item) return;
     
     setProcessingTitle(prev => new Set(prev).add(sku));
-    
     try {
       const existingTitle = item.product?.title || sku;
       const existingDescription = item.offer?.listingDescription || item.product?.description || '';
@@ -171,52 +182,37 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
       const ean = item.product?.ean?.[0] || '';
       const aspects = item.product?.aspects ? JSON.stringify(item.product.aspects) : '';
       
-      // Build context from existing data + use local instructions
       const contextInfo = `
-INSTRUKCJE DLA AI:
-${titleInstructions}
+INSTRUKCJE: ${titleInstructions}
 
-ISTNIEJĄCE DANE PRODUKTU (użyj jako kontekst):
-- Aktualny tytuł: ${existingTitle}
+DANE PRODUKTU:
+- Tytuł: ${existingTitle}
 - Marka: ${brand}
 - EAN: ${ean}
-- Cechy produktu: ${aspects}
-- Fragment opisu: ${existingDescription.substring(0, 800)}
+- Cechy: ${aspects}
+- Opis: ${existingDescription.substring(0, 800)}
 
-Wygeneruj TYLKO nowy tytuł (bez dodatkowych wyjaśnień).
-`;
+Wygeneruj TYLKO nowy tytuł.`;
       
       const result = await generateProductDetails(
-        settings.geminiKey,
-        existingTitle,
-        ean,
-        contextInfo,
-        settings.geminiModels.titleDescription,
-        titleInstructions, // Use local instructions
-        descInstructions
+        settings.geminiKey, existingTitle, ean, contextInfo,
+        settings.geminiModels.titleDescription, titleInstructions, descInstructions
       );
       
-      if (result.title) {
-        updateEditedValue(sku, 'title', result.title);
-      }
+      if (result.title) updateEditedValue(sku, 'title', result.title);
     } catch (err: any) {
       onError(`Błąd generowania tytułu: ${err.message}`);
     } finally {
-      setProcessingTitle(prev => {
-        const next = new Set(prev);
-        next.delete(sku);
-        return next;
-      });
+      setProcessingTitle(prev => { const n = new Set(prev); n.delete(sku); return n; });
     }
   };
   
-  // AI Agent: Generate Description - uses existing product info + local instructions
+  // AI Generate Description
   const handleGenerateDescription = async (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     if (!item) return;
     
     setProcessingDescription(prev => new Set(prev).add(sku));
-    
     try {
       const existingTitle = item.product?.title || sku;
       const existingDescription = item.offer?.listingDescription || item.product?.description || '';
@@ -224,101 +220,92 @@ Wygeneruj TYLKO nowy tytuł (bez dodatkowych wyjaśnień).
       const ean = item.product?.ean?.[0] || '';
       const aspects = item.product?.aspects ? JSON.stringify(item.product.aspects) : '';
       
-      // Build rich context from existing data + use local instructions
       const contextInfo = `
-INSTRUKCJE DLA AI:
-${descInstructions}
+INSTRUKCJE: ${descInstructions}
 
-ISTNIEJĄCE DANE PRODUKTU (użyj jako podstawę do nowego opisu):
+DANE PRODUKTU:
 - Tytuł: ${existingTitle}
 - Marka: ${brand}
 - EAN: ${ean}
-- Cechy produktu: ${aspects}
+- Cechy: ${aspects}
 
-AKTUALNY OPIS (przepisz i ulepsz w HTML):
+AKTUALNY OPIS:
 ${existingDescription}
 
-${settings.companyBanner ? `DODAJ NA KONIEC OPISU TEN BANER FIRMOWY (bez zmian):\n${settings.companyBanner}` : ''}
+${settings.companyBanner ? `BANER FIRMOWY (dodaj na koniec):\n${settings.companyBanner}` : ''}
 
-Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
-`;
+Wygeneruj TYLKO nowy opis HTML.`;
       
       const result = await generateProductDetails(
-        settings.geminiKey,
-        existingTitle,
-        ean,
-        contextInfo,
-        settings.geminiModels.titleDescription,
-        titleInstructions,
-        descInstructions // Use local instructions
+        settings.geminiKey, existingTitle, ean, contextInfo,
+        settings.geminiModels.titleDescription, titleInstructions, descInstructions
       );
       
-      if (result.descriptionHtml) {
-        updateEditedValue(sku, 'description', result.descriptionHtml);
-      }
+      if (result.descriptionHtml) updateEditedValue(sku, 'description', result.descriptionHtml);
     } catch (err: any) {
       onError(`Błąd generowania opisu: ${err.message}`);
     } finally {
-      setProcessingDescription(prev => {
-        const next = new Set(prev);
-        next.delete(sku);
-        return next;
-      });
+      setProcessingDescription(prev => { const n = new Set(prev); n.delete(sku); return n; });
     }
   };
   
   // Image management
   const handleAddImage = (sku: string) => {
     if (!newImageUrl.trim()) return;
-    
-    const currentImages = getCurrentImages(sku);
-    updateEditedValue(sku, 'imageUrls', [...currentImages, newImageUrl.trim()]);
+    updateEditedValue(sku, 'imageUrls', [...getCurrentImages(sku), newImageUrl.trim()]);
     setNewImageUrl('');
   };
   
   const handleRemoveImage = (sku: string, index: number) => {
-    const currentImages = getCurrentImages(sku);
-    const newImages = currentImages.filter((_, i) => i !== index);
-    updateEditedValue(sku, 'imageUrls', newImages);
+    updateEditedValue(sku, 'imageUrls', getCurrentImages(sku).filter((_, i) => i !== index));
   };
   
   const handleMoveImage = (sku: string, index: number, direction: 'up' | 'down') => {
-    const currentImages = [...getCurrentImages(sku)];
+    const images = [...getCurrentImages(sku)];
     const newIndex = direction === 'up' ? index - 1 : index + 1;
-    if (newIndex < 0 || newIndex >= currentImages.length) return;
-    
-    [currentImages[index], currentImages[newIndex]] = [currentImages[newIndex], currentImages[index]];
-    updateEditedValue(sku, 'imageUrls', currentImages);
+    if (newIndex < 0 || newIndex >= images.length) return;
+    [images[index], images[newIndex]] = [images[newIndex], images[index]];
+    updateEditedValue(sku, 'imageUrls', images);
   };
   
-  // Save changes to eBay - update both inventory AND offer
+  // SAVE TO EBAY - Fixed version
   const handleSaveToEbay = async (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     const edits = editedItems[sku];
+    
     if (!item) {
       onError('Nie znaleziono produktu');
       return;
     }
     
-    console.log('[ContentTab] Saving to eBay:', sku, 'edits:', edits);
-    console.log('[ContentTab] Item has offer:', !!item.offer, 'offerId:', item.offer?.offerId);
+    if (!edits || (!edits.title && !edits.description && !edits.imageUrls)) {
+      onError('Brak zmian do zapisania');
+      return;
+    }
+    
+    setIsSaving(prev => new Set(prev).add(sku));
+    console.log('[ContentTab] === SAVING TO EBAY ===');
+    console.log('[ContentTab] SKU:', sku);
+    console.log('[ContentTab] Edits:', JSON.stringify(edits));
+    console.log('[ContentTab] Has offer:', !!item.offer, 'offerId:', item.offer?.offerId);
     
     try {
-      // 1. Update inventory item (title, images) if changed
-      if (edits?.title || edits?.imageUrls) {
-        const updatedProduct = {
-          ...item.product,
-          title: edits?.title ?? item.product?.title,
-          imageUrls: edits?.imageUrls ?? item.product?.imageUrls
-        };
-        
+      let inventoryUpdated = false;
+      let offerUpdated = false;
+      
+      // 1. Update inventory item (title, images)
+      if (edits.title || edits.imageUrls) {
         const inventoryPayload = {
           ...item,
-          product: updatedProduct
+          product: {
+            ...item.product,
+            title: edits.title ?? item.product?.title,
+            imageUrls: edits.imageUrls ?? item.product?.imageUrls
+          }
         };
-        delete (inventoryPayload as any).offer; // Remove offer from inventory payload
+        delete (inventoryPayload as any).offer;
         
-        console.log('[ContentTab] Updating inventory item:', sku);
+        console.log('[ContentTab] Sending inventory update for:', sku);
         
         const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
           method: 'PUT',
@@ -327,98 +314,131 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
           body: JSON.stringify(inventoryPayload)
         });
         
+        console.log('[ContentTab] Inventory response status:', invResponse.status);
+        
         if (!invResponse.ok && invResponse.status !== 204) {
-          const errData = await invResponse.json();
-          console.error('[ContentTab] Inventory update failed:', errData);
-          throw new Error(errData.errors?.[0]?.message || `Inventory error ${invResponse.status}`);
+          const errText = await invResponse.text();
+          console.error('[ContentTab] Inventory error:', errText);
+          throw new Error(`Błąd inventory: ${invResponse.status}`);
         }
-        console.log('[ContentTab] Inventory updated successfully');
+        inventoryUpdated = true;
+        console.log('[ContentTab] Inventory updated!');
       }
       
-      // 2. Update offer (description) if we have offer ID and description changed
-      if (edits?.description) {
-        if (!item.offer?.offerId) {
-          console.warn('[ContentTab] No offerId found for this item - cannot update description');
-          onError('Ten produkt nie ma aktywnej oferty - opis nie został zapisany');
-        } else {
-          const offerPayload = {
-            listingDescription: edits.description
-          };
-          
-          console.log('[ContentTab] Updating offer:', item.offer.offerId, 'description length:', edits.description.length);
-          
-          const offerResponse = await fetch(`${API_BASE}/offer/${item.offer.offerId}`, {
-            method: 'PUT',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(offerPayload)
-          });
-          
-          if (!offerResponse.ok && offerResponse.status !== 204) {
-            const errData = await offerResponse.json();
-            console.error('[ContentTab] Offer update failed:', errData);
-            throw new Error(errData.errors?.[0]?.message || `Offer error ${offerResponse.status}`);
-          }
-          console.log('[ContentTab] Offer updated successfully');
+      // 2. Update offer (description)
+      if (edits.description && item.offer?.offerId) {
+        console.log('[ContentTab] Sending offer update for offerId:', item.offer.offerId);
+        
+        const offerResponse = await fetch(`${API_BASE}/offer/${item.offer.offerId}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ listingDescription: edits.description })
+        });
+        
+        console.log('[ContentTab] Offer response status:', offerResponse.status);
+        
+        if (!offerResponse.ok && offerResponse.status !== 204) {
+          const errText = await offerResponse.text();
+          console.error('[ContentTab] Offer error:', errText);
+          throw new Error(`Błąd offer: ${offerResponse.status}`);
         }
+        offerUpdated = true;
+        console.log('[ContentTab] Offer updated!');
+      } else if (edits.description && !item.offer?.offerId) {
+        console.warn('[ContentTab] No offerId - description not saved to eBay');
+        onError('Produkt nie ma aktywnej oferty - opis zapisany tylko lokalnie');
       }
       
-      // Clear edits for this item and reload
+      // Clear edits
       setEditedItems(prev => {
         const next = { ...prev };
         delete next[sku];
         return next;
       });
       
+      // Success message
+      const parts = [];
+      if (inventoryUpdated) parts.push('inventory');
+      if (offerUpdated) parts.push('oferta');
+      if (parts.length > 0) {
+        console.log('[ContentTab] SUCCESS! Updated:', parts.join(' + '));
+      }
+      
+      // Reload
       await loadInventoryItems();
       
     } catch (err: any) {
-      onError(`Błąd zapisywania do eBay: ${err.message}`);
+      console.error('[ContentTab] Save error:', err);
+      onError(`Błąd zapisywania: ${err.message}`);
+    } finally {
+      setIsSaving(prev => { const n = new Set(prev); n.delete(sku); return n; });
     }
   };
   
-  // Toggle selection
+  // RELIST ended item
+  const handleRelistItem = async (sku: string) => {
+    const item = inventoryItems.find(i => i.sku === sku);
+    if (!item) return;
+    
+    setIsSaving(prev => new Set(prev).add(sku));
+    
+    try {
+      // If has offerId, try to publish it again
+      if (item.offer?.offerId) {
+        console.log('[ContentTab] Relisting offer:', item.offer.offerId);
+        
+        const response = await fetch(`${API_BASE}/offer/${item.offer.offerId}/publish`, {
+          method: 'POST',
+          credentials: 'include'
+        });
+        
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.errors?.[0]?.message || `Publish failed: ${response.status}`);
+        }
+        
+        console.log('[ContentTab] Relisted successfully!');
+        await loadInventoryItems();
+      } else {
+        onError('Ten produkt nie ma oferty do ponownego wystawienia. Utwórz nową ofertę.');
+      }
+    } catch (err: any) {
+      onError(`Błąd ponownego wystawienia: ${err.message}`);
+    } finally {
+      setIsSaving(prev => { const n = new Set(prev); n.delete(sku); return n; });
+    }
+  };
+  
+  // Selection
   const toggleSelect = (sku: string) => {
     setSelectedItems(prev => {
-      const next = new Set(prev);
-      if (next.has(sku)) {
-        next.delete(sku);
-      } else {
-        next.add(sku);
-      }
-      return next;
+      const n = new Set(prev);
+      n.has(sku) ? n.delete(sku) : n.add(sku);
+      return n;
     });
   };
   
-  // Select all
   const selectAll = () => {
-    if (selectedItems.size === inventoryItems.length) {
+    if (selectedItems.size === displayedItems.length) {
       setSelectedItems(new Set());
     } else {
-      setSelectedItems(new Set(inventoryItems.map(i => i.sku)));
+      setSelectedItems(new Set(displayedItems.map(i => i.sku)));
     }
   };
   
-  // Bulk generate titles for selected
+  // Bulk actions
   const handleBulkGenerateTitles = async () => {
-    for (const sku of selectedItems) {
-      await handleGenerateTitle(sku);
-    }
+    for (const sku of selectedItems) await handleGenerateTitle(sku);
   };
   
-  // Bulk generate descriptions for selected
   const handleBulkGenerateDescriptions = async () => {
-    for (const sku of selectedItems) {
-      await handleGenerateDescription(sku);
-    }
+    for (const sku of selectedItems) await handleGenerateDescription(sku);
   };
   
-  // Bulk save to eBay
   const handleBulkSave = async () => {
     for (const sku of selectedItems) {
-      if (editedItems[sku]) {
-        await handleSaveToEbay(sku);
-      }
+      if (editedItems[sku]) await handleSaveToEbay(sku);
     }
   };
   
@@ -431,7 +451,7 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Treści produktów eBay</h2>
           <p className="text-sm text-slate-500 mt-1">
-            Zarządzaj tytułami, opisami i zdjęciami produktów z eBay za pomocą AI
+            Zarządzaj tytułami, opisami i zdjęciami produktów
           </p>
         </div>
         
@@ -447,55 +467,67 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
             disabled={isLoading}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-400 flex items-center gap-2"
           >
-            {isLoading ? (
-              <>
-                <span className="animate-spin">⟳</span>
-                Ładowanie...
-              </>
-            ) : (
-              <>
-                🔄 Odśwież z eBay
-              </>
-            )}
+            {isLoading ? '⟳ Ładowanie...' : '🔄 Odśwież z eBay'}
           </button>
         </div>
+      </div>
+      
+      {/* View Mode Toggle */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setViewMode('active')}
+          className={`px-6 py-3 rounded-xl font-medium flex items-center gap-2 transition-all ${
+            viewMode === 'active' 
+              ? 'bg-green-600 text-white shadow-lg' 
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          ✅ Aktywne
+          <span className={`px-2 py-0.5 rounded-full text-sm ${viewMode === 'active' ? 'bg-green-500' : 'bg-slate-200'}`}>
+            {activeItems.length}
+          </span>
+        </button>
+        <button
+          onClick={() => setViewMode('ended')}
+          className={`px-6 py-3 rounded-xl font-medium flex items-center gap-2 transition-all ${
+            viewMode === 'ended' 
+              ? 'bg-orange-600 text-white shadow-lg' 
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          ⏸️ Zakończone
+          <span className={`px-2 py-0.5 rounded-full text-sm ${viewMode === 'ended' ? 'bg-orange-500' : 'bg-slate-200'}`}>
+            {endedItems.length}
+          </span>
+        </button>
       </div>
       
       {/* AI Instructions Panel */}
       {showInstructions && (
         <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl p-6 space-y-4">
-          <h3 className="font-bold text-indigo-800 flex items-center gap-2">
-            🤖 Instrukcje dla AI
-          </h3>
-          
+          <h3 className="font-bold text-indigo-800">🤖 Instrukcje dla AI</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-indigo-700 mb-1">
-                Instrukcje dla generowania TYTUŁÓW:
-              </label>
+              <label className="block text-sm font-medium text-indigo-700 mb-1">Instrukcje dla TYTUŁÓW:</label>
               <textarea
                 value={titleInstructions}
                 onChange={(e) => setTitleInstructions(e.target.value)}
-                className="w-full h-32 text-sm border border-indigo-200 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Opisz jak AI ma generować tytuły..."
+                className="w-full h-32 text-sm border border-indigo-200 rounded-lg p-3"
+                placeholder="Jak AI ma generować tytuły..."
               />
             </div>
-            
             <div>
-              <label className="block text-sm font-medium text-purple-700 mb-1">
-                Instrukcje dla generowania OPISÓW:
-              </label>
+              <label className="block text-sm font-medium text-purple-700 mb-1">Instrukcje dla OPISÓW:</label>
               <textarea
                 value={descInstructions}
                 onChange={(e) => setDescInstructions(e.target.value)}
-                className="w-full h-32 text-sm border border-purple-200 rounded-lg p-3 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                placeholder="Opisz jak AI ma generować opisy HTML..."
+                className="w-full h-32 text-sm border border-purple-200 rounded-lg p-3"
+                placeholder="Jak AI ma generować opisy..."
               />
             </div>
           </div>
-          
           <p className="text-xs text-slate-500">
-            💡 Te instrukcje są zapisywane lokalnie i używane przy każdym generowaniu. AI otrzymuje też dane produktu (tytuł, marka, EAN, cechy, aktualny opis) jako kontekst.
+            💡 Instrukcje są zapisywane lokalnie. AI otrzymuje też dane produktu jako kontekst.
           </p>
         </div>
       )}
@@ -504,45 +536,34 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200">
           <div className="text-2xl font-bold text-blue-600">{totalItems}</div>
-          <div className="text-sm text-slate-500">Produktów w eBay</div>
+          <div className="text-sm text-slate-500">Wszystkich</div>
         </div>
         <div className="bg-white p-4 rounded-xl border border-slate-200">
-          <div className="text-2xl font-bold text-green-600">{selectedItems.size}</div>
-          <div className="text-sm text-slate-500">Zaznaczonych</div>
+          <div className="text-2xl font-bold text-green-600">{activeItems.length}</div>
+          <div className="text-sm text-slate-500">Aktywnych</div>
         </div>
         <div className="bg-white p-4 rounded-xl border border-slate-200">
-          <div className="text-2xl font-bold text-orange-600">{Object.keys(editedItems).length}</div>
+          <div className="text-2xl font-bold text-orange-600">{endedItems.length}</div>
+          <div className="text-sm text-slate-500">Zakończonych</div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200">
+          <div className="text-2xl font-bold text-slate-600">{Object.keys(editedItems).length}</div>
           <div className="text-sm text-slate-500">Ze zmianami</div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200">
-          <div className="text-2xl font-bold text-slate-600">{currentPage + 1}/{totalPages || 1}</div>
-          <div className="text-sm text-slate-500">Strona</div>
         </div>
       </div>
       
       {/* Bulk Actions */}
       {selectedItems.size > 0 && (
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-center gap-4">
-          <span className="text-indigo-700 font-medium">
-            Zaznaczono {selectedItems.size} produktów:
-          </span>
-          <button
-            onClick={handleBulkGenerateTitles}
-            className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
-          >
+          <span className="text-indigo-700 font-medium">Zaznaczono {selectedItems.size}:</span>
+          <button onClick={handleBulkGenerateTitles} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">
             🤖 Generuj tytuły
           </button>
-          <button
-            onClick={handleBulkGenerateDescriptions}
-            className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700"
-          >
+          <button onClick={handleBulkGenerateDescriptions} className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700">
             📝 Generuj opisy
           </button>
-          <button
-            onClick={handleBulkSave}
-            className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
-          >
-            💾 Zapisz wszystkie do eBay
+          <button onClick={handleBulkSave} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">
+            💾 Zapisz wszystkie
           </button>
         </div>
       )}
@@ -553,12 +574,7 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
               <th className="px-3 py-3 text-left">
-                <input
-                  type="checkbox"
-                  checked={selectedItems.size === inventoryItems.length && inventoryItems.length > 0}
-                  onChange={selectAll}
-                  className="rounded"
-                />
+                <input type="checkbox" checked={selectedItems.size === displayedItems.length && displayedItems.length > 0} onChange={selectAll} className="rounded" />
               </th>
               <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Zdjęcia</th>
               <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">SKU / Cena</th>
@@ -568,10 +584,11 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
             </tr>
           </thead>
           <tbody>
-            {inventoryItems.map((item) => {
+            {displayedItems.map((item) => {
               const hasEdits = !!editedItems[item.sku];
               const isProcessingT = processingTitle.has(item.sku);
               const isProcessingD = processingDescription.has(item.sku);
+              const isSavingItem = isSaving.has(item.sku);
               const images = getCurrentImages(item.sku);
               const description = getCurrentDescription(item.sku);
               const price = getCurrentPrice(item.sku);
@@ -579,53 +596,34 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
               return (
                 <tr key={item.sku} className={`border-b border-slate-100 hover:bg-slate-50 ${hasEdits ? 'bg-yellow-50' : ''}`}>
                   <td className="px-3 py-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedItems.has(item.sku)}
-                      onChange={() => toggleSelect(item.sku)}
-                      className="rounded"
-                    />
+                    <input type="checkbox" checked={selectedItems.has(item.sku)} onChange={() => toggleSelect(item.sku)} className="rounded" />
                   </td>
                   
-                  {/* Thumbnails + Image Management */}
+                  {/* Images */}
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-1">
                       {images.slice(0, 2).map((url, i) => (
-                        <img
-                          key={i}
-                          src={url}
-                          alt={`${item.sku}-${i}`}
-                          className="w-12 h-12 object-cover rounded border border-slate-200"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="%23ddd"><rect width="48" height="48"/><text x="24" y="28" text-anchor="middle" fill="%23999" font-size="8">ERR</text></svg>';
-                          }}
-                        />
+                        <img key={i} src={url} alt="" className="w-12 h-12 object-cover rounded border"
+                          onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="%23ddd"><rect width="48" height="48"/></svg>'; }} />
                       ))}
-                      {images.length > 2 && (
-                        <span className="text-xs text-slate-400">+{images.length - 2}</span>
-                      )}
+                      {images.length > 2 && <span className="text-xs text-slate-400">+{images.length - 2}</span>}
                     </div>
-                    <button
-                      onClick={() => setEditingImagesSku(item.sku)}
-                      className="mt-1 px-2 py-0.5 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200"
-                    >
-                      📷 Zarządzaj ({images.length})
+                    <button onClick={() => setEditingImagesSku(item.sku)} className="mt-1 px-2 py-0.5 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200">
+                      📷 ({images.length})
                     </button>
                   </td>
                   
-                  {/* SKU / Price */}
+                  {/* SKU / Price / Status */}
                   <td className="px-3 py-3">
-                    <div className="font-mono text-sm text-slate-700 font-medium">{item.sku}</div>
-                    {price && (
-                      <div className="text-sm font-bold text-green-600 mt-1">
-                        {price} €
-                      </div>
-                    )}
-                    <div className="text-xs text-slate-400">
-                      {item.product?.ean?.[0] && `EAN: ${item.product.ean[0]}`}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      {item.product?.brand && `${item.product.brand}`}
+                    <div className="font-mono text-sm font-medium">{item.sku}</div>
+                    {price && <div className="text-sm font-bold text-green-600 mt-1">{price} €</div>}
+                    <div className="text-xs text-slate-400">{item.product?.brand}</div>
+                    <div className={`mt-1 text-xs px-2 py-0.5 rounded-full inline-block ${
+                      item.offer?.status === 'PUBLISHED' || item.offer?.status === 'ACTIVE' 
+                        ? 'bg-green-100 text-green-700' 
+                        : 'bg-orange-100 text-orange-700'
+                    }`}>
+                      {item.offer?.status || 'Brak oferty'}
                     </div>
                   </td>
                   
@@ -635,77 +633,66 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
                       value={getCurrentTitle(item.sku)}
                       onChange={(e) => updateEditedValue(item.sku, 'title', e.target.value)}
                       className="w-full text-sm border border-slate-200 rounded px-2 py-1 resize-none"
-                      rows={2}
-                      maxLength={80}
+                      rows={2} maxLength={80}
                     />
                     <div className="flex items-center gap-2 mt-1">
-                      <button
-                        onClick={() => handleGenerateTitle(item.sku)}
-                        disabled={isProcessingT}
-                        className="px-2 py-0.5 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 disabled:opacity-50"
-                      >
-                        {isProcessingT ? '⟳ Generuję...' : '🤖 AI Tytuł'}
+                      <button onClick={() => handleGenerateTitle(item.sku)} disabled={isProcessingT}
+                        className="px-2 py-0.5 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 disabled:opacity-50">
+                        {isProcessingT ? '⟳...' : '🤖 AI'}
                       </button>
-                      <span className="text-xs text-slate-400">
-                        {getCurrentTitle(item.sku).length}/80
-                      </span>
+                      <span className="text-xs text-slate-400">{getCurrentTitle(item.sku).length}/80</span>
                     </div>
                   </td>
                   
                   {/* Description */}
                   <td className="px-3 py-3">
-                    <div 
-                      className="w-48 h-16 text-xs border border-slate-200 rounded p-1 overflow-hidden bg-slate-50 cursor-pointer hover:border-slate-400"
-                      onClick={() => setEditingDescriptionSku(item.sku)}
-                    >
-                      {description ? (
-                        <div dangerouslySetInnerHTML={{ __html: description.substring(0, 200) + '...' }} />
-                      ) : (
-                        <span className="text-slate-400 italic">Brak opisu - kliknij aby dodać</span>
-                      )}
+                    <div className="w-48 h-16 text-xs border border-slate-200 rounded p-1 overflow-hidden bg-slate-50 cursor-pointer hover:border-slate-400"
+                      onClick={() => setEditingDescriptionSku(item.sku)}>
+                      {description ? <div dangerouslySetInnerHTML={{ __html: description.substring(0, 200) + '...' }} />
+                        : <span className="text-slate-400 italic">Brak opisu</span>}
                     </div>
-                    <button
-                      onClick={() => handleGenerateDescription(item.sku)}
-                      disabled={isProcessingD}
-                      className="mt-1 px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50"
-                    >
-                      {isProcessingD ? '⟳ Generuję...' : '📝 AI Opis'}
+                    <button onClick={() => handleGenerateDescription(item.sku)} disabled={isProcessingD}
+                      className="mt-1 px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50">
+                      {isProcessingD ? '⟳...' : '📝 AI'}
                     </button>
                   </td>
                   
                   {/* Actions */}
                   <td className="px-3 py-3">
                     <div className="flex flex-col gap-1">
-                      <button
-                        onClick={() => handleSaveToEbay(item.sku)}
-                        disabled={!hasEdits}
-                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-slate-300"
-                      >
-                        💾 Zapisz do eBay
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEditedItems(prev => {
-                            const next = { ...prev };
-                            delete next[item.sku];
-                            return next;
-                          });
-                        }}
-                        disabled={!hasEdits}
-                        className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200 disabled:opacity-50"
-                      >
-                        ↩️ Cofnij
-                      </button>
+                      {viewMode === 'active' ? (
+                        <>
+                          <button onClick={() => handleSaveToEbay(item.sku)} disabled={!hasEdits || isSavingItem}
+                            className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed">
+                            {isSavingItem ? '⟳ Zapisuję...' : '💾 Zapisz do eBay'}
+                          </button>
+                          <button onClick={() => setEditedItems(p => { const n = {...p}; delete n[item.sku]; return n; })} disabled={!hasEdits}
+                            className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200 disabled:opacity-50">
+                            ↩️ Cofnij
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => handleRelistItem(item.sku)} disabled={isSavingItem}
+                            className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-slate-300">
+                            {isSavingItem ? '⟳...' : '🔄 Wystaw ponownie'}
+                          </button>
+                          <button onClick={() => handleSaveToEbay(item.sku)} disabled={!hasEdits || isSavingItem}
+                            className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-slate-300">
+                            💾 Zapisz zmiany
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
               );
             })}
             
-            {inventoryItems.length === 0 && !isLoading && (
+            {displayedItems.length === 0 && !isLoading && (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-slate-400">
-                  Brak produktów w magazynie eBay. Najpierw opublikuj produkty w zakładce "Produkty".
+                  {viewMode === 'active' ? 'Brak aktywnych produktów' : 'Brak zakończonych produktów'}
                 </td>
               </tr>
             )}
@@ -714,7 +701,7 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center">
                   <div className="animate-spin text-3xl">⟳</div>
-                  <div className="text-slate-400 mt-2">Ładowanie produktów z eBay (może trwać dłużej - pobieram też opisy z ofert)...</div>
+                  <div className="text-slate-400 mt-2">Ładowanie produktów z eBay...</div>
                 </td>
               </tr>
             )}
@@ -725,69 +712,39 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
-          <button
-            onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
-            disabled={currentPage === 0}
-            className="px-3 py-1.5 bg-slate-100 rounded hover:bg-slate-200 disabled:opacity-50"
-          >
-            ← Poprzednia
-          </button>
-          
-          <span className="px-4 text-sm text-slate-600">
-            Strona {currentPage + 1} z {totalPages}
-          </span>
-          
-          <button
-            onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
-            disabled={currentPage >= totalPages - 1}
-            className="px-3 py-1.5 bg-slate-100 rounded hover:bg-slate-200 disabled:opacity-50"
-          >
-            Następna →
-          </button>
+          <button onClick={() => setCurrentPage(p => Math.max(0, p - 1))} disabled={currentPage === 0}
+            className="px-3 py-1.5 bg-slate-100 rounded hover:bg-slate-200 disabled:opacity-50">← Poprzednia</button>
+          <span className="px-4 text-sm text-slate-600">Strona {currentPage + 1} z {totalPages}</span>
+          <button onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))} disabled={currentPage >= totalPages - 1}
+            className="px-3 py-1.5 bg-slate-100 rounded hover:bg-slate-200 disabled:opacity-50">Następna →</button>
         </div>
       )}
       
-      {/* Description Edit Modal */}
+      {/* Description Modal */}
       {editingDescriptionSku && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold">Edycja opisu: {editingDescriptionSku}</h3>
-              <button
-                onClick={() => setEditingDescriptionSku(null)}
-                className="text-slate-400 hover:text-slate-600 text-2xl"
-              >
-                ×
-              </button>
+              <button onClick={() => setEditingDescriptionSku(null)} className="text-slate-400 hover:text-slate-600 text-2xl">×</button>
             </div>
-            
             <textarea
               value={getCurrentDescription(editingDescriptionSku)}
               onChange={(e) => updateEditedValue(editingDescriptionSku, 'description', e.target.value)}
               className="w-full h-96 font-mono text-sm border border-slate-300 rounded-lg p-3"
-              placeholder="Wpisz opis HTML produktu..."
+              placeholder="Wpisz opis HTML..."
             />
-            
             <div className="mt-4 p-4 bg-slate-50 rounded-lg">
               <h4 className="font-semibold mb-2">Podgląd HTML:</h4>
-              <div 
-                className="bg-white border border-slate-200 rounded p-4 max-h-64 overflow-auto"
-                dangerouslySetInnerHTML={{ __html: getCurrentDescription(editingDescriptionSku) }}
-              />
+              <div className="bg-white border border-slate-200 rounded p-4 max-h-64 overflow-auto"
+                dangerouslySetInnerHTML={{ __html: getCurrentDescription(editingDescriptionSku) }} />
             </div>
-            
             <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={() => handleGenerateDescription(editingDescriptionSku)}
-                disabled={processingDescription.has(editingDescriptionSku)}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
-              >
+              <button onClick={() => handleGenerateDescription(editingDescriptionSku)} disabled={processingDescription.has(editingDescriptionSku)}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
                 {processingDescription.has(editingDescriptionSku) ? '⟳ Generuję...' : '🤖 Generuj AI'}
               </button>
-              <button
-                onClick={() => setEditingDescriptionSku(null)}
-                className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700"
-              >
+              <button onClick={() => setEditingDescriptionSku(null)} className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700">
                 Zamknij
               </button>
             </div>
@@ -795,99 +752,35 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
         </div>
       )}
       
-      {/* Images Management Modal */}
+      {/* Images Modal */}
       {editingImagesSku && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold">Zarządzanie zdjęciami: {editingImagesSku}</h3>
-              <button
-                onClick={() => setEditingImagesSku(null)}
-                className="text-slate-400 hover:text-slate-600 text-2xl"
-              >
-                ×
-              </button>
+              <h3 className="text-lg font-bold">Zdjęcia: {editingImagesSku}</h3>
+              <button onClick={() => setEditingImagesSku(null)} className="text-slate-400 hover:text-slate-600 text-2xl">×</button>
             </div>
-            
-            {/* Current images */}
             <div className="space-y-2 mb-4">
               {getCurrentImages(editingImagesSku).map((url, index) => (
                 <div key={index} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
-                  <img
-                    src={url}
-                    alt={`img-${index}`}
-                    className="w-16 h-16 object-cover rounded"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="%23ddd"><rect width="64" height="64"/><text x="32" y="36" text-anchor="middle" fill="%23999" font-size="10">ERR</text></svg>';
-                    }}
-                  />
-                  <input
-                    type="text"
-                    value={url}
-                    readOnly
-                    className="flex-1 text-xs bg-white border border-slate-200 rounded px-2 py-1"
-                  />
+                  <img src={url} alt="" className="w-16 h-16 object-cover rounded"
+                    onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="%23ddd"><rect width="64" height="64"/></svg>'; }} />
+                  <input type="text" value={url} readOnly className="flex-1 text-xs bg-white border border-slate-200 rounded px-2 py-1" />
                   <div className="flex gap-1">
-                    <button
-                      onClick={() => handleMoveImage(editingImagesSku, index, 'up')}
-                      disabled={index === 0}
-                      className="px-2 py-1 text-xs bg-slate-200 rounded disabled:opacity-30"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      onClick={() => handleMoveImage(editingImagesSku, index, 'down')}
-                      disabled={index === getCurrentImages(editingImagesSku).length - 1}
-                      className="px-2 py-1 text-xs bg-slate-200 rounded disabled:opacity-30"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      onClick={() => handleRemoveImage(editingImagesSku, index)}
-                      className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
-                    >
-                      🗑️
-                    </button>
+                    <button onClick={() => handleMoveImage(editingImagesSku, index, 'up')} disabled={index === 0} className="px-2 py-1 text-xs bg-slate-200 rounded disabled:opacity-30">↑</button>
+                    <button onClick={() => handleMoveImage(editingImagesSku, index, 'down')} disabled={index === getCurrentImages(editingImagesSku).length - 1} className="px-2 py-1 text-xs bg-slate-200 rounded disabled:opacity-30">↓</button>
+                    <button onClick={() => handleRemoveImage(editingImagesSku, index)} className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">🗑️</button>
                   </div>
                 </div>
               ))}
-              
-              {getCurrentImages(editingImagesSku).length === 0 && (
-                <div className="text-center py-8 text-slate-400">
-                  Brak zdjęć. Dodaj poniżej.
-                </div>
-              )}
+              {getCurrentImages(editingImagesSku).length === 0 && <div className="text-center py-8 text-slate-400">Brak zdjęć</div>}
             </div>
-            
-            {/* Add new image */}
             <div className="flex gap-2">
-              <input
-                type="text"
-                value={newImageUrl}
-                onChange={(e) => setNewImageUrl(e.target.value)}
-                placeholder="Wklej URL zdjęcia (https://...)"
-                className="flex-1 border border-slate-300 rounded-lg px-3 py-2"
-              />
-              <button
-                onClick={() => handleAddImage(editingImagesSku)}
-                disabled={!newImageUrl.trim()}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300"
-              >
-                ➕ Dodaj
-              </button>
+              <input type="text" value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder="URL zdjęcia..." className="flex-1 border border-slate-300 rounded-lg px-3 py-2" />
+              <button onClick={() => handleAddImage(editingImagesSku)} disabled={!newImageUrl.trim()} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300">➕ Dodaj</button>
             </div>
-            
-            <div className="mt-2 text-xs text-slate-400">
-              Wspierane: bezpośrednie linki do obrazów. Linki Google Drive zostaną automatycznie skonwertowane.
-            </div>
-            
             <div className="mt-4 flex justify-end">
-              <button
-                onClick={() => setEditingImagesSku(null)}
-                className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700"
-              >
-                Zamknij
-              </button>
+              <button onClick={() => setEditingImagesSku(null)} className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700">Zamknij</button>
             </div>
           </div>
         </div>
