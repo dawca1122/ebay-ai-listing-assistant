@@ -209,9 +209,19 @@ export default async function handler(req, res) {
       return handleGetInventoryItemsDebug(req, res);
     }
     
-    // Get all inventory items (paginated)
+    // Get all inventory items (paginated) - Inventory API
     if (path === 'inventory-items') {
       return handleGetInventoryItems(req, res);
+    }
+    
+    // Get ALL seller listings via Trading API GetSellerList
+    if (path === 'seller-list') {
+      return handleGetSellerList(req, res);
+    }
+    
+    // Revise item via Trading API ReviseItem
+    if (path === 'revise-item') {
+      return handleReviseItem(req, res);
     }
     
     if (path.startsWith('inventory/')) {
@@ -220,6 +230,11 @@ export default async function handler(req, res) {
     
     if (path === 'offer') {
       return handleCreateOffer(req, res);
+    }
+    
+    // Handle /offers?sku=XXX (query param) - used by ContentTab
+    if (path === 'offers') {
+      return handleGetOffersBySkuQuery(req, res);
     }
     
     if (path.startsWith('offers/')) {
@@ -271,7 +286,11 @@ function getAvailableRoutes() {
     'POST /api/ebay/market/price-check - Check competition prices',
     // Listing
     'POST /api/ebay/listing/draft - Validate and prepare draft',
-    'POST /api/ebay/listing/publish - Publish to eBay'
+    'POST /api/ebay/listing/publish - Publish to eBay',
+    // Inventory
+    'GET  /api/ebay/inventory-items - Get inventory items (REST API only)',
+    'GET  /api/ebay/seller-list - Get ALL seller listings (Trading API)',
+    'POST /api/ebay/revise-item - Update listing (Trading API ReviseItem)'
   ];
 }
 
@@ -1610,6 +1629,45 @@ async function handleGetOffersBySku(req, res, path) {
   }
 }
 
+// Handle GET /offers?sku=XXX (query parameter style - used by ContentTab)
+async function handleGetOffersBySkuQuery(req, res) {
+  try {
+    const { accessToken } = await getValidAccessToken(req, res);
+    const { environment } = getEbayCredentials();
+    const apiBase = getEbayBaseUrl(environment);
+    
+    // Extract SKU from query string
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const sku = url.searchParams.get('sku');
+    
+    if (!sku) {
+      return res.status(400).json({ error: 'sku query parameter is required' });
+    }
+    
+    console.log('[eBay GetOffers Query] SKU:', sku);
+    
+    const response = await fetch(`${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+        'Accept-Language': 'en-US',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+      }
+    });
+    
+    const data = await response.json();
+    console.log('[eBay GetOffers Query] Response status:', response.status);
+    return res.status(response.status).json(data);
+    
+  } catch (error) {
+    if (error.message === 'NOT_AUTHENTICATED') {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+}
+
 async function handleDeleteOrUpdateOffer(req, res, path) {
   const match = path.match(/^offer\/([^\/]+)$/);
   if (!match) {
@@ -1949,6 +2007,398 @@ async function handleGetInventoryItems(req, res) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
     console.error('[eBay GetInventoryItems] Error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// ============ GET ALL SELLER LISTINGS (TRADING API - GetSellerList) ============
+// This endpoint retrieves ALL seller listings, not just those created via REST API
+async function handleGetSellerList(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  try {
+    const { accessToken } = await getValidAccessToken(req, res);
+    const { environment } = getEbayCredentials();
+    
+    // Get pagination params from query string
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const pageNumber = parseInt(url.searchParams.get('page') || '1');
+    const entriesPerPage = Math.min(parseInt(url.searchParams.get('limit') || '200'), 200);
+    const status = url.searchParams.get('status') || 'all'; // 'active', 'ended', 'all'
+    
+    console.log('[eBay GetSellerList] Page:', pageNumber, 'EntriesPerPage:', entriesPerPage, 'Status:', status);
+    
+    // Trading API endpoint
+    const tradingApiUrl = environment === 'PRODUCTION'
+      ? 'https://api.ebay.com/ws/api.dll'
+      : 'https://api.sandbox.ebay.com/ws/api.dll';
+    
+    // Calculate date range (max 120 days) - get items ending in next 120 days OR ended in last 120 days
+    const now = new Date();
+    let dateFilter = '';
+    
+    if (status === 'active') {
+      // Active items: end time from now to 120 days in future
+      const endTimeFrom = now.toISOString();
+      const endTimeTo = new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000).toISOString();
+      dateFilter = `
+        <EndTimeFrom>${endTimeFrom}</EndTimeFrom>
+        <EndTimeTo>${endTimeTo}</EndTimeTo>
+      `;
+    } else if (status === 'ended') {
+      // Ended items: end time from 120 days ago to now
+      const endTimeFrom = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000).toISOString();
+      const endTimeTo = now.toISOString();
+      dateFilter = `
+        <EndTimeFrom>${endTimeFrom}</EndTimeFrom>
+        <EndTimeTo>${endTimeTo}</EndTimeTo>
+      `;
+    } else {
+      // All items: start time from 120 days ago to now (catches both active and recently ended)
+      const startTimeFrom = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000).toISOString();
+      const startTimeTo = now.toISOString();
+      dateFilter = `
+        <StartTimeFrom>${startTimeFrom}</StartTimeFrom>
+        <StartTimeTo>${startTimeTo}</StartTimeTo>
+      `;
+    }
+    
+    // Build XML request body for GetSellerList
+    // Note: To get Description, we need DetailLevel=ReturnAll or ItemReturnDescription
+    // But this limits to 200 items per page (which we already have)
+    const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
+<GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <RequesterCredentials>
+    <eBayAuthToken>${accessToken}</eBayAuthToken>
+  </RequesterCredentials>
+  <ErrorLanguage>en_US</ErrorLanguage>
+  <WarningLevel>High</WarningLevel>
+  <DetailLevel>ReturnAll</DetailLevel>
+  ${dateFilter}
+  <IncludeWatchCount>true</IncludeWatchCount>
+  <Pagination>
+    <EntriesPerPage>${entriesPerPage}</EntriesPerPage>
+    <PageNumber>${pageNumber}</PageNumber>
+  </Pagination>
+</GetSellerListRequest>`;
+    
+    console.log('[eBay GetSellerList] Calling Trading API...');
+    
+    const response = await fetch(tradingApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml',
+        'X-EBAY-API-SITEID': '77', // 77 = Germany
+        'X-EBAY-API-COMPATIBILITY-LEVEL': '1155',
+        'X-EBAY-API-CALL-NAME': 'GetSellerList',
+        'X-EBAY-API-IAF-TOKEN': accessToken
+      },
+      body: xmlBody
+    });
+    
+    const xmlText = await response.text();
+    console.log('[eBay GetSellerList] Response status:', response.status);
+    
+    // Parse XML response
+    const result = parseGetSellerListXml(xmlText);
+    
+    if (result.error) {
+      console.error('[eBay GetSellerList] Error:', result.error);
+      return res.status(400).json({ error: result.error, details: result.details });
+    }
+    
+    console.log('[eBay GetSellerList] Found items:', result.items?.length, 'Total:', result.totalItems);
+    
+    return res.status(200).json({
+      items: result.items,
+      totalItems: result.totalItems,
+      totalPages: result.totalPages,
+      currentPage: pageNumber,
+      hasMoreItems: result.hasMoreItems,
+      entriesPerPage
+    });
+    
+  } catch (error) {
+    if (error.message === 'NOT_AUTHENTICATED') {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    console.error('[eBay GetSellerList] Error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// Parse GetSellerList XML response
+function parseGetSellerListXml(xmlText) {
+  try {
+    // Check for errors first
+    const ackMatch = xmlText.match(/<Ack>([^<]+)<\/Ack>/);
+    const ack = ackMatch ? ackMatch[1] : '';
+    
+    if (ack === 'Failure') {
+      const errorMatch = xmlText.match(/<ShortMessage>([^<]+)<\/ShortMessage>/);
+      const longErrorMatch = xmlText.match(/<LongMessage>([^<]+)<\/LongMessage>/);
+      return {
+        error: errorMatch ? errorMatch[1] : 'Unknown error',
+        details: longErrorMatch ? longErrorMatch[1] : xmlText.substring(0, 500)
+      };
+    }
+    
+    // Extract pagination info
+    const totalPagesMatch = xmlText.match(/<TotalNumberOfPages>(\d+)<\/TotalNumberOfPages>/);
+    const totalEntriesMatch = xmlText.match(/<TotalNumberOfEntries>(\d+)<\/TotalNumberOfEntries>/);
+    const hasMoreMatch = xmlText.match(/<HasMoreItems>([^<]+)<\/HasMoreItems>/);
+    
+    const totalPages = totalPagesMatch ? parseInt(totalPagesMatch[1]) : 1;
+    const totalItems = totalEntriesMatch ? parseInt(totalEntriesMatch[1]) : 0;
+    const hasMoreItems = hasMoreMatch ? hasMoreMatch[1] === 'true' : false;
+    
+    // Extract items
+    const items = [];
+    const itemRegex = /<Item>([\s\S]*?)<\/Item>/g;
+    let itemMatch;
+    
+    while ((itemMatch = itemRegex.exec(xmlText)) !== null) {
+      const itemXml = itemMatch[1];
+      
+      // Extract fields with safe regex
+      const getField = (name) => {
+        const match = itemXml.match(new RegExp(`<${name}>([^<]*)</${name}>`));
+        return match ? match[1] : null;
+      };
+      
+      // Get Description (can contain HTML, might be in CDATA)
+      let description = null;
+      // Try CDATA first
+      const cdataMatch = itemXml.match(/<Description><!\[CDATA\[([\s\S]*?)\]\]><\/Description>/);
+      if (cdataMatch) {
+        description = cdataMatch[1];
+      } else {
+        // Try regular content (HTML entities encoded)
+        const descMatch = itemXml.match(/<Description>([\s\S]*?)<\/Description>/);
+        if (descMatch) {
+          description = decodeXmlEntities(descMatch[1]);
+        }
+      }
+      
+      // Get picture URLs
+      const pictureUrls = [];
+      const pictureUrlRegex = /<PictureURL>([^<]+)<\/PictureURL>/g;
+      let picMatch;
+      while ((picMatch = pictureUrlRegex.exec(itemXml)) !== null) {
+        pictureUrls.push(picMatch[1]);
+      }
+      
+      // Get current price from SellingStatus
+      const currentPriceMatch = itemXml.match(/<CurrentPrice[^>]*>([^<]+)<\/CurrentPrice>/);
+      const currentPrice = currentPriceMatch ? currentPriceMatch[1] : null;
+      const currencyMatch = itemXml.match(/<CurrentPrice[^>]*currencyID="([^"]+)"/);
+      const currency = currencyMatch ? currencyMatch[1] : 'EUR';
+      
+      // Get listing status
+      const listingStatusMatch = itemXml.match(/<ListingStatus>([^<]+)<\/ListingStatus>/);
+      const listingStatus = listingStatusMatch ? listingStatusMatch[1] : 'Active';
+      
+      // Get quantity info
+      const quantityMatch = itemXml.match(/<Quantity>(\d+)<\/Quantity>/);
+      const quantitySoldMatch = itemXml.match(/<QuantitySold>(\d+)<\/QuantitySold>/);
+      const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1;
+      const quantitySold = quantitySoldMatch ? parseInt(quantitySoldMatch[1]) : 0;
+      
+      // Get times
+      const startTimeMatch = itemXml.match(/<StartTime>([^<]+)<\/StartTime>/);
+      const endTimeMatch = itemXml.match(/<EndTime>([^<]+)<\/EndTime>/);
+      
+      // Get View Item URL
+      const viewItemUrlMatch = itemXml.match(/<ViewItemURL>([^<]+)<\/ViewItemURL>/);
+      
+      // Get category
+      const categoryIdMatch = itemXml.match(/<CategoryID>([^<]+)<\/CategoryID>/);
+      const categoryNameMatch = itemXml.match(/<CategoryName>([^<]+)<\/CategoryName>/);
+      
+      const item = {
+        itemId: getField('ItemID'),
+        sku: getField('SKU') || getField('ItemID'), // Use ItemID as SKU if not set
+        title: getField('Title'),
+        description: description, // HTML description of the listing
+        pictureUrls: pictureUrls,
+        currentPrice: {
+          value: currentPrice,
+          currency: currency
+        },
+        listingStatus: listingStatus,
+        quantity: quantity,
+        quantitySold: quantitySold,
+        quantityAvailable: quantity - quantitySold,
+        startTime: startTimeMatch ? startTimeMatch[1] : null,
+        endTime: endTimeMatch ? endTimeMatch[1] : null,
+        timeLeft: getField('TimeLeft'),
+        viewItemUrl: viewItemUrlMatch ? viewItemUrlMatch[1] : null,
+        watchCount: getField('WatchCount'),
+        condition: getField('ConditionDisplayName'),
+        category: {
+          id: categoryIdMatch ? categoryIdMatch[1] : null,
+          name: categoryNameMatch ? decodeXmlEntities(categoryNameMatch[1]) : null
+        }
+      };
+      
+      // Decode HTML entities in title
+      if (item.title) {
+        item.title = decodeXmlEntities(item.title);
+      }
+      
+      items.push(item);
+    }
+    
+    return {
+      items,
+      totalItems,
+      totalPages,
+      hasMoreItems
+    };
+    
+  } catch (error) {
+    console.error('[eBay GetSellerList] Parse error:', error);
+    return {
+      error: 'Failed to parse response',
+      details: error.message
+    };
+  }
+}
+
+// Decode XML/HTML entities
+function decodeXmlEntities(text) {
+  if (!text) return text;
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
+}
+
+// Encode text for XML (escape special chars)
+function encodeXmlEntities(text) {
+  if (!text) return text;
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// ============ REVISE ITEM (Trading API - ReviseItem) ============
+// Update an existing listing using Trading API ReviseItem
+async function handleReviseItem(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  try {
+    const { accessToken } = await getValidAccessToken(req, res);
+    const { environment } = getEbayCredentials();
+    
+    const { itemId, title, description, pictureUrls } = req.body;
+    
+    if (!itemId) {
+      return res.status(400).json({ error: 'itemId is required' });
+    }
+    
+    console.log('[eBay ReviseItem] ItemID:', itemId);
+    console.log('[eBay ReviseItem] Changes - Title:', !!title, 'Description:', !!description, 'Pictures:', pictureUrls?.length);
+    
+    // Trading API endpoint
+    const tradingApiUrl = environment === 'PRODUCTION'
+      ? 'https://api.ebay.com/ws/api.dll'
+      : 'https://api.sandbox.ebay.com/ws/api.dll';
+    
+    // Build Item element with only changed fields
+    let itemElement = `<ItemID>${itemId}</ItemID>`;
+    
+    if (title) {
+      itemElement += `<Title>${encodeXmlEntities(title)}</Title>`;
+    }
+    
+    if (description) {
+      // Description needs CDATA wrapper for HTML content
+      itemElement += `<Description><![CDATA[${description}]]></Description>`;
+    }
+    
+    if (pictureUrls && pictureUrls.length > 0) {
+      itemElement += '<PictureDetails>';
+      for (const url of pictureUrls) {
+        itemElement += `<PictureURL>${encodeXmlEntities(url)}</PictureURL>`;
+      }
+      itemElement += '</PictureDetails>';
+    }
+    
+    // Build XML request body for ReviseItem
+    const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
+<ReviseItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <RequesterCredentials>
+    <eBayAuthToken>${accessToken}</eBayAuthToken>
+  </RequesterCredentials>
+  <ErrorLanguage>en_US</ErrorLanguage>
+  <WarningLevel>High</WarningLevel>
+  <Item>
+    ${itemElement}
+  </Item>
+</ReviseItemRequest>`;
+    
+    console.log('[eBay ReviseItem] Calling Trading API...');
+    
+    const response = await fetch(tradingApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml',
+        'X-EBAY-API-SITEID': '77', // 77 = Germany
+        'X-EBAY-API-COMPATIBILITY-LEVEL': '1155',
+        'X-EBAY-API-CALL-NAME': 'ReviseItem',
+        'X-EBAY-API-IAF-TOKEN': accessToken
+      },
+      body: xmlBody
+    });
+    
+    const xmlText = await response.text();
+    console.log('[eBay ReviseItem] Response status:', response.status);
+    
+    // Check for errors
+    const ackMatch = xmlText.match(/<Ack>([^<]+)<\/Ack>/);
+    const ack = ackMatch ? ackMatch[1] : '';
+    
+    if (ack === 'Failure') {
+      const errorMatch = xmlText.match(/<ShortMessage>([^<]+)<\/ShortMessage>/);
+      const longErrorMatch = xmlText.match(/<LongMessage>([^<]+)<\/LongMessage>/);
+      const errorCode = xmlText.match(/<ErrorCode>([^<]+)<\/ErrorCode>/);
+      
+      console.error('[eBay ReviseItem] Error:', errorMatch?.[1], longErrorMatch?.[1]);
+      
+      return res.status(400).json({
+        error: errorMatch ? decodeXmlEntities(errorMatch[1]) : 'ReviseItem failed',
+        details: longErrorMatch ? decodeXmlEntities(longErrorMatch[1]) : null,
+        errorCode: errorCode ? errorCode[1] : null
+      });
+    }
+    
+    // Extract item ID from response
+    const revisedItemIdMatch = xmlText.match(/<ItemID>([^<]+)<\/ItemID>/);
+    
+    console.log('[eBay ReviseItem] Success! ItemID:', revisedItemIdMatch?.[1]);
+    
+    return res.status(200).json({
+      success: true,
+      itemId: revisedItemIdMatch ? revisedItemIdMatch[1] : itemId,
+      ack: ack
+    });
+    
+  } catch (error) {
+    if (error.message === 'NOT_AUTHENTICATED') {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    console.error('[eBay ReviseItem] Error:', error);
     return res.status(500).json({ error: error.message });
   }
 }

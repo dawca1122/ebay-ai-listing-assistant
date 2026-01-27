@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AppSettings } from '../types';
 import { generateProductDetails } from '../services/geminiService';
 
-// Types for eBay inventory items with offer data
+// Types for eBay seller listings (from Trading API GetSellerList)
 interface EbayInventoryItem {
   sku: string;
+  itemId?: string;
   product?: {
     title?: string;
     description?: string;
@@ -14,7 +15,28 @@ interface EbayInventoryItem {
     ean?: string[];
     aspects?: Record<string, string[]>;
   };
+  // Fields from Trading API
+  title?: string;
+  pictureUrls?: string[];
+  currentPrice?: {
+    value?: string;
+    currency?: string;
+  };
+  listingStatus?: string; // 'Active', 'Completed', 'Ended'
+  quantity?: number;
+  quantitySold?: number;
+  quantityAvailable?: number;
+  startTime?: string;
+  endTime?: string;
+  timeLeft?: string;
+  viewItemUrl?: string;
+  watchCount?: string;
   condition?: string;
+  category?: {
+    id?: string;
+    name?: string;
+  };
+  // Legacy fields (from Inventory API)
   availability?: {
     shipToLocationAvailability?: {
       quantity?: number;
@@ -92,54 +114,59 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     localStorage.setItem(STORAGE_KEY_DESC_INSTRUCTIONS, descInstructions);
   }, [descInstructions]);
   
-  // Filter items based on view mode
+  // Filter items based on view mode (Trading API uses listingStatus)
   const activeItems = inventoryItems.filter(item => 
-    item.offer?.status === 'PUBLISHED' || item.offer?.status === 'ACTIVE'
+    item.listingStatus === 'Active' || 
+    item.offer?.status === 'PUBLISHED' || 
+    item.offer?.status === 'ACTIVE'
   );
   const endedItems = inventoryItems.filter(item => 
-    !item.offer || item.offer?.status === 'ENDED' || item.offer?.status === 'UNPUBLISHED'
+    item.listingStatus === 'Completed' || 
+    item.listingStatus === 'Ended' ||
+    (!item.listingStatus && (!item.offer || item.offer?.status === 'ENDED' || item.offer?.status === 'UNPUBLISHED'))
   );
   const displayedItems = viewMode === 'active' ? activeItems : endedItems;
   
-  // Load ALL inventory items with pagination (multiple requests if needed)
+  // Load ALL seller listings via Trading API GetSellerList
   const loadInventoryItems = useCallback(async () => {
     setIsLoading(true);
     try {
       let allItems: EbayInventoryItem[] = [];
-      let offset = 0;
-      const limit = 100; // Use 100 to be safe with timeouts
-      let total = 0;
+      let currentPage = 1;
       let hasMore = true;
+      const limit = 200; // Max allowed by eBay Trading API with GranularityLevel
       
-      console.log('[ContentTab] Starting to load all inventory items...');
+      console.log('[ContentTab] Starting to load all seller listings via Trading API...');
       
       // Fetch all pages
       while (hasMore) {
-        console.log(`[ContentTab] Fetching page: offset=${offset}, limit=${limit}`);
+        console.log(`[ContentTab] Fetching page ${currentPage}, limit=${limit}`);
         
-        const response = await fetch(`${API_BASE}/inventory-items?limit=${limit}&offset=${offset}&enrichOffers=true`, {
+        const response = await fetch(`${API_BASE}/seller-list?page=${currentPage}&limit=${limit}&status=all`, {
           method: 'GET',
           credentials: 'include'
         });
         
-        if (!response.ok) throw new Error(`Failed to load inventory: ${response.status}`);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Failed to load listings: ${response.status}`);
+        }
         
         const data = await response.json();
-        total = data.total || 0;
         
-        if (data.inventoryItems && data.inventoryItems.length > 0) {
-          allItems = [...allItems, ...data.inventoryItems];
-          console.log(`[ContentTab] Got ${data.inventoryItems.length} items, total so far: ${allItems.length}/${total}`);
+        if (data.items && data.items.length > 0) {
+          allItems = [...allItems, ...data.items];
+          console.log(`[ContentTab] Got ${data.items.length} items, total so far: ${allItems.length}/${data.totalItems}`);
           
-          offset += limit;
-          hasMore = allItems.length < total;
+          hasMore = data.hasMoreItems;
+          currentPage++;
         } else {
           hasMore = false;
         }
         
-        // Safety: max 5 requests (500 items)
-        if (offset >= 500) {
-          console.log('[ContentTab] Reached max 500 items limit');
+        // Safety: max 10 pages (2000 items)
+        if (currentPage > 10) {
+          console.log('[ContentTab] Reached max 10 pages limit');
           hasMore = false;
         }
       }
@@ -147,9 +174,9 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
       console.log(`[ContentTab] Finished loading. Total items: ${allItems.length}`);
       
       // Count statuses
-      const published = allItems.filter(i => i.offer?.status === 'PUBLISHED' || i.offer?.status === 'ACTIVE').length;
-      const unpublished = allItems.filter(i => !i.offer || i.offer?.status === 'ENDED' || i.offer?.status === 'UNPUBLISHED').length;
-      console.log(`[ContentTab] Active: ${published}, Ended: ${unpublished}`);
+      const active = allItems.filter(i => i.listingStatus === 'Active').length;
+      const ended = allItems.filter(i => i.listingStatus === 'Completed' || i.listingStatus === 'Ended').length;
+      console.log(`[ContentTab] Active: ${active}, Ended: ${ended}`);
       
       setInventoryItems(allItems);
       setTotalItems(allItems.length);
@@ -176,25 +203,26 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     setSelectedItems(new Set());
   }, [viewMode]);
   
-  // Getters for current values
+  // Getters for current values (support both Trading API and Inventory API formats)
   const getCurrentTitle = (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
-    return editedItems[sku]?.title ?? item?.product?.title ?? '';
+    return editedItems[sku]?.title ?? item?.title ?? item?.product?.title ?? '';
   };
   
   const getCurrentDescription = (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
-    return editedItems[sku]?.description ?? item?.offer?.listingDescription ?? item?.product?.description ?? '';
+    // Trading API items have description directly, Inventory API uses offer.listingDescription or product.description
+    return editedItems[sku]?.description ?? item?.description ?? item?.offer?.listingDescription ?? item?.product?.description ?? '';
   };
   
   const getCurrentImages = (sku: string): string[] => {
     const item = inventoryItems.find(i => i.sku === sku);
-    return editedItems[sku]?.imageUrls ?? item?.product?.imageUrls ?? [];
+    return editedItems[sku]?.imageUrls ?? item?.pictureUrls ?? item?.product?.imageUrls ?? [];
   };
   
   const getCurrentPrice = (sku: string): string => {
     const item = inventoryItems.find(i => i.sku === sku);
-    return item?.offer?.pricingSummary?.price?.value ?? '';
+    return item?.currentPrice?.value ?? item?.offer?.pricingSummary?.price?.value ?? '';
   };
   
   // Update edited value
@@ -212,7 +240,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     
     setProcessingTitle(prev => new Set(prev).add(sku));
     try {
-      const existingTitle = item.product?.title || sku;
+      const existingTitle = item.title || item.product?.title || sku;
       const existingDescription = item.offer?.listingDescription || item.product?.description || '';
       const brand = item.product?.brand || '';
       const ean = item.product?.ean?.[0] || '';
@@ -250,7 +278,7 @@ Wygeneruj TYLKO nowy tytuł.`;
     
     setProcessingDescription(prev => new Set(prev).add(sku));
     try {
-      const existingTitle = item.product?.title || sku;
+      const existingTitle = item.title || item.product?.title || sku;
       const existingDescription = item.offer?.listingDescription || item.product?.description || '';
       const brand = item.product?.brand || '';
       const ean = item.product?.ean?.[0] || '';
@@ -304,7 +332,7 @@ Wygeneruj TYLKO nowy opis HTML.`;
     updateEditedValue(sku, 'imageUrls', images);
   };
   
-  // SAVE TO EBAY - Fixed version
+  // SAVE TO EBAY - Uses Trading API ReviseItem for items from GetSellerList
   const handleSaveToEbay = async (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     const edits = editedItems[sku];
@@ -321,69 +349,154 @@ Wygeneruj TYLKO nowy opis HTML.`;
     
     setIsSaving(prev => new Set(prev).add(sku));
     console.log('[ContentTab] === SAVING TO EBAY ===');
-    console.log('[ContentTab] SKU:', sku);
+    console.log('[ContentTab] SKU:', sku, 'ItemID:', item.itemId);
     console.log('[ContentTab] Edits:', JSON.stringify(edits));
-    console.log('[ContentTab] Has offer:', !!item.offer, 'offerId:', item.offer?.offerId);
     
     try {
-      let inventoryUpdated = false;
-      let offerUpdated = false;
+      // Strategy: Try Inventory API first, if it fails, try Trading API ReviseItem
+      let saveSuccess = false;
+      let shouldTryTradingApi = false;
       
-      // 1. Update inventory item (title, images)
-      if (edits.title || edits.imageUrls) {
-        const inventoryPayload = {
-          ...item,
-          product: {
-            ...item.product,
-            title: edits.title ?? item.product?.title,
-            imageUrls: edits.imageUrls ?? item.product?.imageUrls
+      // First, try Inventory API (for items created via REST API)
+      try {
+        console.log('[ContentTab] Trying Inventory API first...');
+        
+        let inventoryUpdated = false;
+        let offerUpdated = false;
+        
+        // 1. Update inventory item (title, images)
+        if (edits.title || edits.imageUrls) {
+          const currentItem = item.product || {};
+          
+          const inventoryPayload: any = {
+            condition: currentItem.aspects?.Condition?.[0] || 'NEW',
+            availability: item.availability || {
+              shipToLocationAvailability: { quantity: item.quantityAvailable || 1 }
+            },
+            product: {
+              title: edits.title ?? currentItem.title ?? item.title,
+              imageUrls: edits.imageUrls ?? currentItem.imageUrls ?? item.pictureUrls
+            }
+          };
+          
+          if (currentItem.brand) inventoryPayload.product.brand = currentItem.brand;
+          if (currentItem.mpn) inventoryPayload.product.mpn = currentItem.mpn;
+          if (currentItem.ean) inventoryPayload.product.ean = currentItem.ean;
+          if (currentItem.aspects) inventoryPayload.product.aspects = currentItem.aspects;
+          if (currentItem.description) inventoryPayload.product.description = currentItem.description;
+          
+          console.log('[ContentTab] Sending inventory update for:', sku);
+          
+          const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(inventoryPayload)
+          });
+          
+          console.log('[ContentTab] Inventory response status:', invResponse.status);
+          
+          if (!invResponse.ok && invResponse.status !== 204) {
+            const errText = await invResponse.text();
+            console.log('[ContentTab] Inventory API error:', errText);
+            // ANY error from Inventory API - fallback to Trading API
+            shouldTryTradingApi = true;
+            throw new Error('INVENTORY_API_FAILED');
           }
-        };
-        delete (inventoryPayload as any).offer;
-        
-        console.log('[ContentTab] Sending inventory update for:', sku);
-        
-        const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(inventoryPayload)
-        });
-        
-        console.log('[ContentTab] Inventory response status:', invResponse.status);
-        
-        if (!invResponse.ok && invResponse.status !== 204) {
-          const errText = await invResponse.text();
-          console.error('[ContentTab] Inventory error:', errText);
-          throw new Error(`Błąd inventory: ${invResponse.status}`);
+          inventoryUpdated = true;
+          console.log('[ContentTab] Inventory updated!');
         }
-        inventoryUpdated = true;
-        console.log('[ContentTab] Inventory updated!');
+        
+        // 2. Update offer (description)
+        if (edits.description) {
+          console.log('[ContentTab] Fetching offers for SKU:', sku);
+          const offersResponse = await fetch(`${API_BASE}/offers?sku=${encodeURIComponent(sku)}`, {
+            credentials: 'include'
+          });
+          
+          if (offersResponse.ok) {
+            const offersData = await offersResponse.json();
+            const offers = offersData.offers || [];
+            console.log('[ContentTab] Found offers:', offers.length);
+            
+            if (offers.length > 0) {
+              const offerId = offers[0].offerId;
+              console.log('[ContentTab] Sending offer update for offerId:', offerId);
+              
+              const offerResponse = await fetch(`${API_BASE}/offer/${offerId}`, {
+                method: 'PUT',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ listingDescription: edits.description })
+              });
+              
+              console.log('[ContentTab] Offer response status:', offerResponse.status);
+              
+              if (!offerResponse.ok && offerResponse.status !== 204) {
+                const errText = await offerResponse.text();
+                console.error('[ContentTab] Offer error:', errText);
+                throw new Error(`Błąd offer: ${offerResponse.status}`);
+              }
+              offerUpdated = true;
+              console.log('[ContentTab] Offer updated!');
+            } else if (!inventoryUpdated) {
+              shouldTryTradingApi = true;
+              throw new Error('NO_OFFERS_FOUND');
+            }
+          } else if (!inventoryUpdated) {
+            shouldTryTradingApi = true;
+            throw new Error('OFFERS_API_FAILED');
+          }
+        }
+        
+        if (inventoryUpdated || offerUpdated) {
+          saveSuccess = true;
+          console.log('[ContentTab] Inventory API SUCCESS!');
+        }
+        
+      } catch (invErr: any) {
+        console.log('[ContentTab] Inventory API failed:', invErr.message);
+        // Any Inventory API error should trigger fallback to Trading API
+        if (invErr.message === 'INVENTORY_API_FAILED' || invErr.message === 'NO_OFFERS_FOUND' || invErr.message === 'OFFERS_API_FAILED') {
+          shouldTryTradingApi = true;
+        } else {
+          // Unknown error - still try Trading API as last resort
+          shouldTryTradingApi = true;
+        }
       }
       
-      // 2. Update offer (description)
-      if (edits.description && item.offer?.offerId) {
-        console.log('[ContentTab] Sending offer update for offerId:', item.offer.offerId);
+      // If Inventory API didn't work, try Trading API ReviseItem
+      if (!saveSuccess && shouldTryTradingApi && item.itemId) {
+        console.log('[ContentTab] Falling back to Trading API ReviseItem...');
         
-        const offerResponse = await fetch(`${API_BASE}/offer/${item.offer.offerId}`, {
-          method: 'PUT',
+        const revisePayload: any = { itemId: item.itemId };
+        if (edits.title) revisePayload.title = edits.title;
+        if (edits.description) revisePayload.description = edits.description;
+        if (edits.imageUrls) revisePayload.pictureUrls = edits.imageUrls;
+        
+        console.log('[ContentTab] Sending ReviseItem for:', item.itemId);
+        
+        const response = await fetch(`${API_BASE}/revise-item`, {
+          method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ listingDescription: edits.description })
+          body: JSON.stringify(revisePayload)
         });
         
-        console.log('[ContentTab] Offer response status:', offerResponse.status);
+        console.log('[ContentTab] ReviseItem response status:', response.status);
         
-        if (!offerResponse.ok && offerResponse.status !== 204) {
-          const errText = await offerResponse.text();
-          console.error('[ContentTab] Offer error:', errText);
-          throw new Error(`Błąd offer: ${offerResponse.status}`);
+        if (!response.ok) {
+          const errData = await response.json();
+          console.error('[ContentTab] ReviseItem error:', errData);
+          throw new Error(errData.error || `Błąd ReviseItem: ${response.status}`);
         }
-        offerUpdated = true;
-        console.log('[ContentTab] Offer updated!');
-      } else if (edits.description && !item.offer?.offerId) {
-        console.warn('[ContentTab] No offerId - description not saved to eBay');
-        onError('Produkt nie ma aktywnej oferty - opis zapisany tylko lokalnie');
+        
+        saveSuccess = true;
+        console.log('[ContentTab] Trading API ReviseItem SUCCESS!');
+      }
+      
+      if (!saveSuccess) {
+        throw new Error('Nie udało się zaktualizować produktu');
       }
       
       // Clear edits
@@ -392,14 +505,6 @@ Wygeneruj TYLKO nowy opis HTML.`;
         delete next[sku];
         return next;
       });
-      
-      // Success message
-      const parts = [];
-      if (inventoryUpdated) parts.push('inventory');
-      if (offerUpdated) parts.push('oferta');
-      if (parts.length > 0) {
-        console.log('[ContentTab] SUCCESS! Updated:', parts.join(' + '));
-      }
       
       // Reload
       await loadInventoryItems();
