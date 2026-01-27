@@ -101,36 +101,65 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
   );
   const displayedItems = viewMode === 'active' ? activeItems : endedItems;
   
-  // Load inventory items
+  // Load ALL inventory items with pagination (multiple requests if needed)
   const loadInventoryItems = useCallback(async () => {
     setIsLoading(true);
     try {
-      const offset = currentPage * itemsPerPage;
-      const response = await fetch(`${API_BASE}/inventory-items?limit=${itemsPerPage}&offset=${offset}`, {
-        method: 'GET',
-        credentials: 'include'
-      });
+      let allItems: EbayInventoryItem[] = [];
+      let offset = 0;
+      const limit = 100; // Use 100 to be safe with timeouts
+      let total = 0;
+      let hasMore = true;
       
-      if (!response.ok) throw new Error(`Failed to load inventory: ${response.status}`);
+      console.log('[ContentTab] Starting to load all inventory items...');
       
-      const data = await response.json();
-      console.log('[ContentTab] Loaded items:', data.inventoryItems?.length, 'total:', data.total);
+      // Fetch all pages
+      while (hasMore) {
+        console.log(`[ContentTab] Fetching page: offset=${offset}, limit=${limit}`);
+        
+        const response = await fetch(`${API_BASE}/inventory-items?limit=${limit}&offset=${offset}&enrichOffers=true`, {
+          method: 'GET',
+          credentials: 'include'
+        });
+        
+        if (!response.ok) throw new Error(`Failed to load inventory: ${response.status}`);
+        
+        const data = await response.json();
+        total = data.total || 0;
+        
+        if (data.inventoryItems && data.inventoryItems.length > 0) {
+          allItems = [...allItems, ...data.inventoryItems];
+          console.log(`[ContentTab] Got ${data.inventoryItems.length} items, total so far: ${allItems.length}/${total}`);
+          
+          offset += limit;
+          hasMore = allItems.length < total;
+        } else {
+          hasMore = false;
+        }
+        
+        // Safety: max 5 requests (500 items)
+        if (offset >= 500) {
+          console.log('[ContentTab] Reached max 500 items limit');
+          hasMore = false;
+        }
+      }
       
-      // Log offer statuses and images
-      data.inventoryItems?.forEach((item: EbayInventoryItem) => {
-        const imgCount = item.product?.imageUrls?.length || 0;
-        console.log(`[ContentTab] ${item.sku}: status=${item.offer?.status || 'NO OFFER'}, images=${imgCount}, title=${item.product?.title?.substring(0, 30)}...`);
-        console.log(`[ContentTab] ${item.sku}: offer status = ${item.offer?.status || 'NO OFFER'}`);
-      });
+      console.log(`[ContentTab] Finished loading. Total items: ${allItems.length}`);
       
-      setInventoryItems(data.inventoryItems || []);
-      setTotalItems(data.total || 0);
+      // Count statuses
+      const published = allItems.filter(i => i.offer?.status === 'PUBLISHED' || i.offer?.status === 'ACTIVE').length;
+      const unpublished = allItems.filter(i => !i.offer || i.offer?.status === 'ENDED' || i.offer?.status === 'UNPUBLISHED').length;
+      console.log(`[ContentTab] Active: ${published}, Ended: ${unpublished}`);
+      
+      setInventoryItems(allItems);
+      setTotalItems(allItems.length);
     } catch (err: any) {
+      console.error('[ContentTab] Load error:', err);
       onError(`Błąd ładowania: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, itemsPerPage, onError]);
+  }, [onError]);
   
   useEffect(() => {
     loadInventoryItems();
