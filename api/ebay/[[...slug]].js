@@ -220,6 +220,10 @@ export default async function handler(req, res) {
       return handlePublishOffer(req, res, path);
     }
     
+    if (path.match(/^offer\/[^\/]+$/) && !path.includes('/publish')) {
+      return handleDeleteOrUpdateOffer(req, res, path);
+    }
+    
     // Not found
     return res.status(404).json({ 
       error: 'Route not found', 
@@ -1590,6 +1594,73 @@ async function handleGetOffersBySku(req, res, path) {
     const data = await response.json();
     console.log('[eBay GetOffers] Response:', JSON.stringify(data, null, 2));
     return res.status(response.status).json(data);
+    
+  } catch (error) {
+    if (error.message === 'NOT_AUTHENTICATED') {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+async function handleDeleteOrUpdateOffer(req, res, path) {
+  const match = path.match(/^offer\/([^\/]+)$/);
+  if (!match) {
+    return res.status(400).json({ error: 'Invalid offer ID' });
+  }
+  
+  const offerId = match[1];
+  
+  try {
+    const { accessToken } = await getValidAccessToken(req, res);
+    const { environment } = getEbayCredentials();
+    const apiBase = getEbayBaseUrl(environment);
+    
+    if (req.method === 'DELETE') {
+      console.log('[eBay Offer] Deleting offer:', offerId);
+      
+      const response = await fetch(`${apiBase}/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Language': 'de-DE',
+          'Accept-Language': 'de-DE',
+          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+        }
+      });
+      
+      if (response.status === 204) {
+        return res.status(204).end();
+      }
+      
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    }
+    
+    if (req.method === 'PUT') {
+      console.log('[eBay Offer] Updating offer:', offerId);
+      
+      const response = await fetch(`${apiBase}/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'Content-Language': 'de-DE',
+          'Accept-Language': 'de-DE',
+          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+        },
+        body: JSON.stringify(req.body)
+      });
+      
+      if (response.status === 204) {
+        return res.status(204).end();
+      }
+      
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    }
+    
+    return res.status(405).json({ error: 'Method not allowed' });
     
   } catch (error) {
     if (error.message === 'NOT_AUTHENTICATED') {

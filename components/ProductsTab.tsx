@@ -1149,7 +1149,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           throw new Error(errData.errors?.[0]?.message || `Inventory error ${invResponse.status}`);
         }
 
-        // Step 2: Check if offer exists, if not create one
+        // Step 2: Check if offer exists - if yes DELETE it and create fresh one
         let offerId = '';
         
         // First check if offer already exists for this SKU
@@ -1161,52 +1161,68 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         if (existingOffersResponse.ok) {
           const existingOffers = await existingOffersResponse.json();
           if (existingOffers.offers && existingOffers.offers.length > 0) {
-            // Use existing offer
-            offerId = existingOffers.offers[0].offerId;
-            console.log('📦 Using existing offer:', offerId);
+            // DELETE existing offer - it may have stale data (missing aspects etc)
+            const existingOfferId = existingOffers.offers[0].offerId;
+            console.log('🗑️ Deleting existing offer:', existingOfferId, '(may have stale aspects)');
+            
+            try {
+              const deleteResponse = await fetch(`${API_BASE}/offer/${existingOfferId}`, {
+                method: 'DELETE',
+                credentials: 'include'
+              });
+              
+              if (deleteResponse.ok || deleteResponse.status === 204) {
+                console.log('✅ Deleted old offer successfully');
+              } else {
+                const deleteErr = await deleteResponse.json().catch(() => ({}));
+                console.warn('⚠️ Could not delete old offer:', deleteErr);
+                // Continue anyway - maybe offer was already published?
+              }
+            } catch (delErr) {
+              console.warn('⚠️ Error deleting old offer:', delErr);
+            }
           }
         }
         
-        if (!offerId) {
-          // Create new offer
-          offerPayload = {
-            sku: product.sku,
-            marketplaceId: EBAY_DE_CONSTANTS.MARKETPLACE_ID,
-            format: 'FIXED_PRICE',
-            listingDescription: product.descriptionHtml,
-            availableQuantity: product.quantity,
-            categoryId: product.ebayCategoryId,
-            merchantLocationKey: settings.policies.merchantLocationKey,
-            pricingSummary: {
-              price: {
-                value: product.priceGross.toFixed(2),
-                currency: EBAY_DE_CONSTANTS.CURRENCY
-              }
-            },
-            listingPolicies: {
-              fulfillmentPolicyId: settings.policies.fulfillmentPolicyId,
-              paymentPolicyId: settings.policies.paymentPolicyId,
-              returnPolicyId: settings.policies.returnPolicyId
+        // Always create new offer (we deleted old one if existed)
+        // Create new offer
+        offerPayload = {
+          sku: product.sku,
+          marketplaceId: EBAY_DE_CONSTANTS.MARKETPLACE_ID,
+          format: 'FIXED_PRICE',
+          listingDescription: product.descriptionHtml,
+          availableQuantity: product.quantity,
+          categoryId: product.ebayCategoryId,
+          merchantLocationKey: settings.policies.merchantLocationKey,
+          pricingSummary: {
+            price: {
+              value: product.priceGross.toFixed(2),
+              currency: EBAY_DE_CONSTANTS.CURRENCY
             }
-          };
-
-          const offerResponse = await fetch(`${API_BASE}/offer`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(offerPayload)
-          });
-
-          const offerData = await offerResponse.json();
-          if (!offerResponse.ok) {
-            throw new Error(offerData.errors?.[0]?.message || `Offer error ${offerResponse.status}`);
+          },
+          listingPolicies: {
+            fulfillmentPolicyId: settings.policies.fulfillmentPolicyId,
+            paymentPolicyId: settings.policies.paymentPolicyId,
+            returnPolicyId: settings.policies.returnPolicyId
           }
+        };
 
-          offerId = offerData.offerId;
-          console.log('✅ Created new offer:', offerId);
+        const offerResponse = await fetch(`${API_BASE}/offer`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(offerPayload)
+        });
+
+        const offerData = await offerResponse.json();
+        if (!offerResponse.ok) {
+          throw new Error(offerData.errors?.[0]?.message || `Offer error ${offerResponse.status}`);
         }
+
+        offerId = offerData.offerId;
+        console.log('✅ Created new offer:', offerId);
 
         // Step 3: Publish Offer
         const publishResponse = await fetch(`${API_BASE}/offer/${offerId}/publish`, {
