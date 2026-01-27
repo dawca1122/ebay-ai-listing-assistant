@@ -1486,6 +1486,7 @@ async function handlePublishOffer(req, res, path) {
   }
   
   const offerId = match[1];
+  console.log('[eBay Publish] Offer ID:', offerId);
   
   try {
     const { accessToken } = await getValidAccessToken(req, res);
@@ -1504,6 +1505,8 @@ async function handlePublishOffer(req, res, path) {
     });
     
     const data = await response.json();
+    console.log('[eBay Publish] Response status:', response.status);
+    console.log('[eBay Publish] Response data:', JSON.stringify(data, null, 2));
     return res.status(response.status).json(data);
     
   } catch (error) {
