@@ -3,18 +3,6 @@ import { Product, AppSettings, EBAY_DE_CONSTANTS } from "../types";
 // API Base - relative URL works both locally (with Vite proxy) and on Vercel
 const API_BASE = "/api/ebay";
 
-// Common fetch options to include credentials (cookies)
-const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
-  return fetch(url, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-};
-
 // Legacy: Get access token from localStorage (for backward compatibility)
 const getAccessToken = (): string | null => {
   const stored = localStorage.getItem('ebay_oauth_tokens');
@@ -27,6 +15,26 @@ const getAccessToken = (): string | null => {
   }
 };
 
+// Common fetch options to include credentials (cookies) AND localStorage token as fallback
+const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> || {}),
+  };
+  
+  // Always include localStorage token as Authorization header (fallback for when cookies don't work)
+  const accessToken = getAccessToken();
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  
+  return fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers,
+  });
+};
+
 // ============================================
 // OAuth Status - now checks backend via cookies
 // ============================================
@@ -37,28 +45,51 @@ export interface OAuthStatus {
   hasRefreshToken?: boolean;
 }
 
+// Helper to check localStorage tokens
+const checkLocalStorageTokens = (): OAuthStatus => {
+  const stored = localStorage.getItem('ebay_oauth_tokens');
+  if (!stored) return { connected: false, expiresAt: null };
+  try {
+    const tokens = JSON.parse(stored);
+    const connected = tokens.expiresAt > Date.now() + (5 * 60 * 1000);
+    return { 
+      connected, 
+      expiresAt: tokens.expiresAt,
+      hasRefreshToken: !!tokens.refreshToken
+    };
+  } catch {
+    return { connected: false, expiresAt: null };
+  }
+};
+
 export const getOAuthStatus = async (): Promise<OAuthStatus> => {
   try {
     const response = await fetchWithCredentials(`${API_BASE}/oauth/status`);
     const data = await response.json();
-    return {
-      connected: data.connected,
-      expiresAt: data.expiresAt || null,
-      needsRefresh: data.needsRefresh,
-      hasRefreshToken: data.hasRefreshToken
-    };
+    
+    // If API says connected via cookies, use that
+    if (data.connected) {
+      return {
+        connected: true,
+        expiresAt: data.expiresAt || null,
+        needsRefresh: data.needsRefresh,
+        hasRefreshToken: data.hasRefreshToken
+      };
+    }
+    
+    // If API says not connected, check localStorage as fallback
+    // (cookies might not work but tokens might be in localStorage)
+    const localStatus = checkLocalStorageTokens();
+    if (localStatus.connected) {
+      console.log('[OAuth] Using localStorage tokens (cookies not available)');
+      return localStatus;
+    }
+    
+    return { connected: false, expiresAt: null };
   } catch (error) {
     console.error('Failed to get OAuth status:', error);
     // Fallback to localStorage for backward compatibility
-    const stored = localStorage.getItem('ebay_oauth_tokens');
-    if (!stored) return { connected: false, expiresAt: null };
-    try {
-      const tokens = JSON.parse(stored);
-      const connected = tokens.expiresAt > Date.now() + (5 * 60 * 1000);
-      return { connected, expiresAt: tokens.expiresAt };
-    } catch {
-      return { connected: false, expiresAt: null };
-    }
+    return checkLocalStorageTokens();
   }
 };
 

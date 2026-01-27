@@ -2,6 +2,37 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AppSettings } from '../types';
 import { generateProductDetails } from '../services/geminiService';
 
+// Helper to get access token from localStorage
+const getAccessToken = (): string | null => {
+  const stored = localStorage.getItem('ebay_oauth_tokens');
+  if (!stored) return null;
+  try {
+    const tokens = JSON.parse(stored);
+    return tokens.accessToken;
+  } catch {
+    return null;
+  }
+};
+
+// Helper for authenticated fetch (cookies + Authorization header fallback)
+const fetchWithAuth = (url: string, options: RequestInit = {}): Promise<Response> => {
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string> || {}),
+  };
+  
+  // Add Authorization header from localStorage as fallback
+  const accessToken = getAccessToken();
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  
+  return fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers,
+  });
+};
+
 // Types for eBay seller listings (from Trading API GetSellerList)
 interface EbayInventoryItem {
   sku: string;
@@ -142,9 +173,8 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
       while (hasMore) {
         console.log(`[ContentTab] Fetching page ${currentPage}, limit=${limit}`);
         
-        const response = await fetch(`${API_BASE}/seller-list?page=${currentPage}&limit=${limit}&status=all`, {
-          method: 'GET',
-          credentials: 'include'
+        const response = await fetchWithAuth(`${API_BASE}/seller-list?page=${currentPage}&limit=${limit}&status=all`, {
+          method: 'GET'
         });
         
         if (!response.ok) {
@@ -351,9 +381,8 @@ Wygeneruj TYLKO nowy opis HTML.`;
     const loadInventorySnapshot = async () => {
       if (inventorySnapshot !== undefined) return inventorySnapshot;
       try {
-        const response = await fetch(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
-          method: 'GET',
-          credentials: 'include'
+        const response = await fetchWithAuth(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
+          method: 'GET'
         });
         if (response.status === 404 || response.status === 204) {
           console.warn(`[ContentTab] Inventory item ${sku} not found (status ${response.status})`);
@@ -435,9 +464,8 @@ Wygeneruj TYLKO nowy opis HTML.`;
           console.log('[ContentTab] Sending inventory update for:', sku);
           console.log('[ContentTab] Inventory payload includes aspects:', !!inventoryPayload.product?.aspects);
           
-          const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
+          const invResponse = await fetchWithAuth(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
             method: 'PUT',
-            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(inventoryPayload)
           });
@@ -458,9 +486,7 @@ Wygeneruj TYLKO nowy opis HTML.`;
         // 2. Update offer (description)
         if (edits.description) {
           console.log('[ContentTab] Fetching offers for SKU:', sku);
-          const offersResponse = await fetch(`${API_BASE}/offers?sku=${encodeURIComponent(sku)}`, {
-            credentials: 'include'
-          });
+          const offersResponse = await fetchWithAuth(`${API_BASE}/offers?sku=${encodeURIComponent(sku)}`);
           
           if (offersResponse.ok) {
             const offersData = await offersResponse.json();
@@ -471,9 +497,8 @@ Wygeneruj TYLKO nowy opis HTML.`;
               const offerId = offers[0].offerId;
               console.log('[ContentTab] Sending offer update for offerId:', offerId);
               
-              const offerResponse = await fetch(`${API_BASE}/offer/${offerId}`, {
+              const offerResponse = await fetchWithAuth(`${API_BASE}/offer/${offerId}`, {
                 method: 'PUT',
-                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ listingDescription: edits.description })
               });
@@ -524,9 +549,8 @@ Wygeneruj TYLKO nowy opis HTML.`;
         
         console.log('[ContentTab] Sending ReviseItem for:', item.itemId);
         
-        const response = await fetch(`${API_BASE}/revise-item`, {
+        const response = await fetchWithAuth(`${API_BASE}/revise-item`, {
           method: 'POST',
-          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(revisePayload)
         });
@@ -577,9 +601,8 @@ Wygeneruj TYLKO nowy opis HTML.`;
       if (item.offer?.offerId) {
         console.log('[ContentTab] Relisting offer:', item.offer.offerId);
         
-        const response = await fetch(`${API_BASE}/offer/${item.offer.offerId}/publish`, {
-          method: 'POST',
-          credentials: 'include'
+        const response = await fetchWithAuth(`${API_BASE}/offer/${item.offer.offerId}/publish`, {
+          method: 'POST'
         });
         
         if (!response.ok) {

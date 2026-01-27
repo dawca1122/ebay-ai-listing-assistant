@@ -37,14 +37,15 @@ function setTokenCookies(res, tokens) {
   const isProduction = process.env.NODE_ENV === 'production';
   const cookieOptions = {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: 'lax',
+    secure: true, // Always secure for SameSite=None
+    sameSite: 'none', // Required for cross-site cookies (OAuth popup flow)
     path: '/',
     maxAge: 60 * 60 * 24 * 30 // 30 days (refresh token validity)
   };
   
   const encryptedTokens = encryptToken(JSON.stringify(tokens));
   
+  console.log('[eBay Cookies] Setting cookie, length:', encryptedTokens.length);
   res.setHeader('Set-Cookie', cookie.serialize('ebay_tokens', encryptedTokens, cookieOptions));
 }
 
@@ -63,8 +64,8 @@ function getTokensFromCookies(req) {
 function clearTokenCookies(res) {
   res.setHeader('Set-Cookie', cookie.serialize('ebay_tokens', '', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'none',
     path: '/',
     maxAge: 0
   }));
@@ -614,11 +615,19 @@ async function handleOAuthStatus(req, res) {
   const tokens = getTokensFromCookies(req);
   const { environment } = getEbayCredentials();
   
+  console.log('[eBay OAuth Status] Cookies present:', !!req.headers.cookie);
+  console.log('[eBay OAuth Status] Tokens from cookie:', !!tokens);
+  console.log('[eBay OAuth Status] Raw cookie header:', req.headers.cookie?.substring(0, 100));
+  
   if (!tokens) {
     return res.status(200).json({
       connected: false,
       environment,
-      message: 'Not authenticated'
+      message: 'Not authenticated',
+      debug: {
+        cookiePresent: !!req.headers.cookie,
+        cookieLength: req.headers.cookie?.length || 0
+      }
     });
   }
   
@@ -1645,8 +1654,12 @@ async function handleGetOffersBySkuQuery(req, res) {
     }
     
     console.log('[eBay GetOffers Query] SKU:', sku);
+    console.log('[eBay GetOffers Query] API Base:', apiBase);
     
-    const response = await fetch(`${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`, {
+    const ebayUrl = `${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`;
+    console.log('[eBay GetOffers Query] Full URL:', ebayUrl);
+    
+    const response = await fetch(ebayUrl, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -1657,9 +1670,11 @@ async function handleGetOffersBySkuQuery(req, res) {
     
     const data = await response.json();
     console.log('[eBay GetOffers Query] Response status:', response.status);
+    console.log('[eBay GetOffers Query] Response data:', JSON.stringify(data).substring(0, 500));
     return res.status(response.status).json(data);
     
   } catch (error) {
+    console.error('[eBay GetOffers Query] Error:', error);
     if (error.message === 'NOT_AUTHENTICATED') {
       return res.status(401).json({ error: 'Not authenticated' });
     }
