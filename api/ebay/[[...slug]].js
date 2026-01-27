@@ -1644,6 +1644,40 @@ async function handleDeleteOrUpdateOffer(req, res, path) {
     
     if (req.method === 'PUT') {
       console.log('[eBay Offer] Updating offer:', offerId);
+      console.log('[eBay Offer] Update payload:', JSON.stringify(req.body));
+      
+      // First, get the current offer to have full data
+      const getResponse = await fetch(`${apiBase}/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+          'Accept-Language': 'de-DE',
+          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
+        }
+      });
+      
+      if (!getResponse.ok) {
+        const errData = await getResponse.json();
+        console.log('[eBay Offer] Failed to get offer:', errData);
+        return res.status(getResponse.status).json(errData);
+      }
+      
+      const currentOffer = await getResponse.json();
+      console.log('[eBay Offer] Current offer retrieved');
+      
+      // Merge with new data (only update listingDescription)
+      const updatedOffer = {
+        ...currentOffer,
+        listingDescription: req.body.listingDescription ?? currentOffer.listingDescription
+      };
+      
+      // Remove read-only fields
+      delete updatedOffer.offerId;
+      delete updatedOffer.listing;
+      delete updatedOffer.status;
+      
+      console.log('[eBay Offer] Sending updated offer with description length:', updatedOffer.listingDescription?.length);
       
       const response = await fetch(`${apiBase}/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`, {
         method: 'PUT',
@@ -1654,7 +1688,7 @@ async function handleDeleteOrUpdateOffer(req, res, path) {
           'Accept-Language': 'de-DE',
           'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
         },
-        body: JSON.stringify(req.body)
+        body: JSON.stringify(updatedOffer)
       });
       
       if (response.status === 204) {
@@ -1662,6 +1696,7 @@ async function handleDeleteOrUpdateOffer(req, res, path) {
       }
       
       const data = await response.json();
+      console.log('[eBay Offer] Update response:', JSON.stringify(data).substring(0, 500));
       return res.status(response.status).json(data);
     }
     
@@ -1772,9 +1807,11 @@ async function handleGetInventoryItems(req, res) {
             
             if (offerResponse.ok) {
               const offerData = await offerResponse.json();
+              console.log(`[eBay GetInventoryItems] Offer for ${item.sku}:`, JSON.stringify(offerData).substring(0, 500));
               const offer = offerData.offers?.[0];
               
               if (offer) {
+                console.log(`[eBay GetInventoryItems] Found offer ${offer.offerId}, description length: ${offer.listingDescription?.length || 0}`);
                 // Add offer data to inventory item
                 return {
                   ...item,
@@ -1788,6 +1825,8 @@ async function handleGetInventoryItems(req, res) {
                   }
                 };
               }
+            } else {
+              console.log(`[eBay GetInventoryItems] No offer found for ${item.sku}, status: ${offerResponse.status}`);
             }
             return item;
           } catch (err) {

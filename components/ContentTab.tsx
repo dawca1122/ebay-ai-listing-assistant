@@ -295,49 +295,71 @@ Wygeneruj TYLKO nowy opis HTML (bez dodatkowych wyjaśnień).
   const handleSaveToEbay = async (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     const edits = editedItems[sku];
-    if (!item) return;
+    if (!item) {
+      onError('Nie znaleziono produktu');
+      return;
+    }
+    
+    console.log('[ContentTab] Saving to eBay:', sku, 'edits:', edits);
+    console.log('[ContentTab] Item has offer:', !!item.offer, 'offerId:', item.offer?.offerId);
     
     try {
-      // 1. Update inventory item (title, images)
-      const updatedProduct = {
-        ...item.product,
-        title: edits?.title ?? item.product?.title,
-        imageUrls: edits?.imageUrls ?? item.product?.imageUrls
-      };
-      
-      const inventoryPayload = {
-        ...item,
-        product: updatedProduct
-      };
-      delete (inventoryPayload as any).offer; // Remove offer from inventory payload
-      
-      const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(inventoryPayload)
-      });
-      
-      if (!invResponse.ok && invResponse.status !== 204) {
-        const errData = await invResponse.json();
-        throw new Error(errData.errors?.[0]?.message || `Inventory error ${invResponse.status}`);
-      }
-      
-      // 2. Update offer (description) if we have offer ID and description changed
-      if (item.offer?.offerId && edits?.description) {
-        const offerPayload = {
-          listingDescription: edits.description
+      // 1. Update inventory item (title, images) if changed
+      if (edits?.title || edits?.imageUrls) {
+        const updatedProduct = {
+          ...item.product,
+          title: edits?.title ?? item.product?.title,
+          imageUrls: edits?.imageUrls ?? item.product?.imageUrls
         };
         
-        const offerResponse = await fetch(`${API_BASE}/offer/${item.offer.offerId}`, {
+        const inventoryPayload = {
+          ...item,
+          product: updatedProduct
+        };
+        delete (inventoryPayload as any).offer; // Remove offer from inventory payload
+        
+        console.log('[ContentTab] Updating inventory item:', sku);
+        
+        const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(sku)}`, {
           method: 'PUT',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(offerPayload)
+          body: JSON.stringify(inventoryPayload)
         });
         
-        if (!offerResponse.ok && offerResponse.status !== 204) {
-          console.warn('[ContentTab] Failed to update offer description');
+        if (!invResponse.ok && invResponse.status !== 204) {
+          const errData = await invResponse.json();
+          console.error('[ContentTab] Inventory update failed:', errData);
+          throw new Error(errData.errors?.[0]?.message || `Inventory error ${invResponse.status}`);
+        }
+        console.log('[ContentTab] Inventory updated successfully');
+      }
+      
+      // 2. Update offer (description) if we have offer ID and description changed
+      if (edits?.description) {
+        if (!item.offer?.offerId) {
+          console.warn('[ContentTab] No offerId found for this item - cannot update description');
+          onError('Ten produkt nie ma aktywnej oferty - opis nie został zapisany');
+        } else {
+          const offerPayload = {
+            listingDescription: edits.description
+          };
+          
+          console.log('[ContentTab] Updating offer:', item.offer.offerId, 'description length:', edits.description.length);
+          
+          const offerResponse = await fetch(`${API_BASE}/offer/${item.offer.offerId}`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(offerPayload)
+          });
+          
+          if (!offerResponse.ok && offerResponse.status !== 204) {
+            const errData = await offerResponse.json();
+            console.error('[ContentTab] Offer update failed:', errData);
+            throw new Error(errData.errors?.[0]?.message || `Offer error ${offerResponse.status}`);
+          }
+          console.log('[ContentTab] Offer updated successfully');
         }
       }
       
