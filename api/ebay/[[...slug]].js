@@ -1881,8 +1881,6 @@ async function handleGetInventoryItems(req, res) {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
-        'Content-Language': 'de-DE',
-        'Accept-Language': 'de-DE',
         'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
       }
     });
@@ -1913,8 +1911,7 @@ async function handleGetInventoryItems(req, res) {
                   method: 'GET',
                   headers: {
                     'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Accept-Language': 'de-DE',
+                    'Accept': 'application/json',
                     'X-EBAY-C-MARKETPLACE-ID': 'EBAY_DE'
                   }
                 }
