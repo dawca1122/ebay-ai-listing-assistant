@@ -1123,7 +1123,8 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             aspects: requiredAspects,
             brand: brand,
             mpn: model,
-            ean: [product.ean]
+            ean: [product.ean],
+            imageUrls: product.images && product.images.length > 0 ? product.images : []
           },
           condition: product.condition === ProductCondition.NEW ? 'NEW' : 'USED_EXCELLENT',
           availability: {
@@ -1134,6 +1135,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         };
 
         console.log('📦 Inventory payload aspects:', requiredAspects);
+        console.log('🖼️ Images:', product.images);
 
         const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(product.sku)}`, {
           method: 'PUT',
