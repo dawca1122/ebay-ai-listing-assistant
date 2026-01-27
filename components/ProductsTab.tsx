@@ -1115,6 +1115,26 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
           }
         }
 
+        // Convert Google Drive links to direct image URLs
+        const convertGoogleDriveUrl = (url: string): string => {
+          // Match Google Drive file links like:
+          // https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk
+          // https://drive.google.com/open?id=FILE_ID
+          const fileMatch = url.match(/drive\.google\.com\/file\/d\/([^\/]+)/);
+          if (fileMatch) {
+            return `https://drive.google.com/uc?export=view&id=${fileMatch[1]}`;
+          }
+          const openMatch = url.match(/drive\.google\.com\/open\?id=([^&]+)/);
+          if (openMatch) {
+            return `https://drive.google.com/uc?export=view&id=${openMatch[1]}`;
+          }
+          return url; // Return original if not a Google Drive link
+        };
+
+        const processedImages = (product.images || []).map(convertGoogleDriveUrl);
+        console.log('🖼️ Original images:', product.images);
+        console.log('🖼️ Processed images:', processedImages);
+
         // Step 1: Create/Update Inventory Item
         inventoryPayload = {
           product: {
@@ -1124,7 +1144,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             brand: brand,
             mpn: model,
             ean: [product.ean],
-            imageUrls: product.images && product.images.length > 0 ? product.images : []
+            imageUrls: processedImages.length > 0 ? processedImages : []
           },
           condition: product.condition === ProductCondition.NEW ? 'NEW' : 'USED_EXCELLENT',
           availability: {
