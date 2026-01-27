@@ -2128,20 +2128,13 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                 />
               </div>
               
-              {/* Right: Preview with banner */}
+              {/* Right: Preview */}
               <div className="w-1/2 p-4 flex flex-col">
                 <label className="text-xs font-bold text-slate-600 mb-2 flex items-center gap-2">
-                  👁️ Podgląd (z banerem firmowym)
+                  👁️ Podgląd opisu
                 </label>
                 <div className="flex-1 overflow-auto bg-white border border-slate-200 rounded-lg p-4">
-                  {/* Company Banner */}
-                  {settings.companyBanner && (
-                    <div 
-                      className="mb-4 border-b border-slate-200 pb-4"
-                      dangerouslySetInnerHTML={{ __html: settings.companyBanner }}
-                    />
-                  )}
-                  {/* Product Description */}
+                  {/* Product Description - banner will be added at publish time */}
                   <div 
                     dangerouslySetInnerHTML={{ __html: editingDescription }}
                   />

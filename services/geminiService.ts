@@ -4,8 +4,8 @@ import { Product, GeminiModelId, AiInstructions } from "../types";
 
 // Default model if not specified
 const DEFAULT_MODEL = "gemini-2.5-flash";
-// Use gemini-2.5-pro for research (supports Google Search grounding)
-const RESEARCH_MODEL = "gemini-2.5-pro";
+// Use gemini-2.0-flash for research with Google Search (2.5-pro has issues)
+const RESEARCH_MODEL = "gemini-2.0-flash";
 
 export const testConnection = async (apiKey: string, model?: GeminiModelId): Promise<boolean> => {
   if (!apiKey) return false;
@@ -273,28 +273,26 @@ export const suggestCategory = async (
 
   const ai = new GoogleGenAI({ apiKey });
   
-  // Use Google Search to find real eBay.de category IDs
-  const searchPrompt = `Wyszukaj dokładną kategorię eBay.de (Germany) dla produktu: "${name}"
-
-Szukaj na stronie eBay.de aby znaleźć prawidłowy numer ID kategorii (Category ID).
-Sprawdź stronę eBay.de/sch/ lub eBay Category ID lookup.
-Zwróć TYLKO rzeczywiste numery kategorii eBay.de (np. 182064, 80053, 15032 itp.).
-Nie wymyślaj numerów - znajdź prawdziwe ID z eBay.de.`;
-
-  // First, search for real category IDs
-  const searchResponse = await ai.models.generateContent({
-    model: RESEARCH_MODEL,
-    contents: searchPrompt,
-    config: {
-      tools: [{ googleSearch: {} }]
-    }
-  });
+  // Common eBay.de category IDs for reference:
+  // Electronics: 293 (Handys), 171485 (Smartwatches), 112529 (Kopfhörer), 48458 (TV)
+  // Home: 11700 (Haushaltsgeräte), 20710 (Möbel), 175750 (Garten)
+  // Fashion: 15724 (Kleidung), 95672 (Schuhe), 4250 (Uhren)
+  // Sports: 888 (Sport), 7294 (Fahrräder), 1492 (Golf)
+  // Toys: 220 (Spielzeug), 2613 (LEGO)
+  // Beauty: 26395 (Kosmetik), 67588 (Parfüm)
   
-  const searchResults = searchResponse.text || '';
-  console.log('🔍 Category search results:', searchResults.substring(0, 500));
+  const basePrompt = customPrompt || `Du bist ein eBay-Kategorisierungsexperte für eBay.de (Deutschland).
+Finde die passendste Kategorie-ID für das Produkt.
 
-  // Now extract structured data
-  const basePrompt = customPrompt || `Na podstawie wyników wyszukiwania, podaj dokładny ID kategorii eBay.de.`;
+Wichtige eBay.de Kategorien (nutze diese als Referenz):
+- Elektronik: Handys (9355), Kopfhörer (112529), Smartwatches (178893), Tablets (171485), Laptops (177)
+- Audio: Kopfhörer (112529), Lautsprecher (14990), HiFi (3276)
+- Haushalt: Küchenmaschinen (20657), Staubsauger (20614), Kaffee (38250)
+- Sport: Fitness (15273), Outdoor (16034), Camping (16034)
+- Mode: Herrenbekleidung (1059), Damenbekleidung (15724), Schuhe (95672)
+- Spielzeug: LEGO (19006), Actionfiguren (246), Spiele (233)
+
+Wähle die SPEZIFISCHSTE passende Kategorie.`;
 
   const response = await ai.models.generateContent({
     model: model || DEFAULT_MODEL,
@@ -302,11 +300,10 @@ Nie wymyślaj numerów - znajdź prawdziwe ID z eBay.de.`;
 
 Produkt: "${name}"
 
-Wyniki wyszukiwania kategorii eBay.de:
-${searchResults}
-
-Zwróć top 2 kategorie eBay.de z prawdziwym ID (sam numer, np. "182064"), nazwą kategorii i pewnością ('TOP1' lub 'TOP2').
-Upewnij się że ID to prawdziwy numer kategorii eBay.de!`,
+Gib die 2 besten eBay.de Kategorien zurück mit:
+- id: Die numerische Kategorie-ID (z.B. "112529" für Kopfhörer)
+- name: Der deutsche Kategoriename
+- confidence: 'TOP1' oder 'TOP2'`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
