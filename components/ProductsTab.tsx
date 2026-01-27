@@ -1531,12 +1531,13 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                 <th className="px-3 py-3">eBay Cat</th>
                 <th className="px-3 py-3 w-20">Status</th>
                 <th className="px-3 py-3 w-8">Err</th>
+                <th className="px-3 py-3 w-10">🗑️</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={16} className="px-4 py-12 text-center text-slate-400 italic">
+                  <td colSpan={17} className="px-4 py-12 text-center text-slate-400 italic">
                     Brak produktów. Zaimportuj dane powyżej.
                   </td>
                 </tr>
@@ -1800,6 +1801,24 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                           </button>
                         )}
                       </td>
+                      <td className="px-3 py-2 text-center">
+                        <button 
+                          onClick={() => {
+                            if (confirm(`Usunąć "${p.inputName || p.ean}"?`)) {
+                              setProducts(prev => prev.filter(prod => prod.id !== p.id));
+                              setSelectedIds(prev => {
+                                const next = new Set(prev);
+                                next.delete(p.id);
+                                return next;
+                              });
+                            }
+                          }}
+                          className="text-red-400 hover:text-red-600 hover:bg-red-50 rounded p-1 transition-colors"
+                          title="Usuń produkt"
+                        >
+                          🗑️
+                        </button>
+                      </td>
                     </tr>
                   );
                 })
@@ -1809,9 +1828,24 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         </div>
         
         {/* Footer */}
-        <div className="p-3 border-t border-slate-200 bg-slate-50 text-xs text-slate-500 flex justify-between">
+        <div className="p-3 border-t border-slate-200 bg-slate-50 text-xs text-slate-500 flex justify-between items-center">
           <span>Wyświetlono: {filteredProducts.length} / {products.length} produktów</span>
-          <span>Zaznaczono: {selectedIds.size}</span>
+          <div className="flex items-center gap-4">
+            <span>Zaznaczono: {selectedIds.size}</span>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={() => {
+                  if (confirm(`Usunąć ${selectedIds.size} zaznaczonych produktów?`)) {
+                    setProducts(prev => prev.filter(p => !selectedIds.has(p.id)));
+                    setSelectedIds(new Set());
+                  }
+                }}
+                className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-bold hover:bg-red-600 transition-colors"
+              >
+                🗑️ Usuń zaznaczone ({selectedIds.size})
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
