@@ -176,7 +176,12 @@ Product Name: ${name}
 EAN: ${ean}
 Additional Rules: ${instructions}
 
-Generate SKU, Title (max 80 chars, German), Description (HTML, German with detailed features from research), Keywords, and suggested price.`;
+Generate:
+- SKU: SHORT format only! Use 2-4 letters from brand name + 5 random digits. Example: JBL14236, SNY82451, BOS39172. NO prefixes like "SKU-", max 10 characters total.
+- Title (max 80 chars, German)
+- Description (HTML, German with detailed features from research)
+- Keywords
+- Suggested price`;
 
   const response = await ai.models.generateContent({
     model: model || DEFAULT_MODEL,
