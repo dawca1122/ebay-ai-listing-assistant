@@ -23,6 +23,13 @@ interface EbayInventoryItem {
   };
 }
 
+interface EditedProduct {
+  title?: string;
+  description?: string;
+  imageUrls?: string[];
+  price?: string;
+}
+
 interface ContentTabProps {
   settings: AppSettings;
   onError: (msg: string) => void;
@@ -38,10 +45,16 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
   // Processing states for AI agents
   const [processingTitle, setProcessingTitle] = useState<Set<string>>(new Set());
   const [processingDescription, setProcessingDescription] = useState<Set<string>>(new Set());
-  const [processingSku, setProcessingSku] = useState<Set<string>>(new Set());
   
   // Edited values (local state before saving to eBay)
-  const [editedItems, setEditedItems] = useState<Record<string, Partial<EbayInventoryItem['product']>>>({});
+  const [editedItems, setEditedItems] = useState<Record<string, EditedProduct>>({});
+  
+  // Modal for editing description
+  const [editingDescriptionSku, setEditingDescriptionSku] = useState<string | null>(null);
+  
+  // Modal for managing images
+  const [editingImagesSku, setEditingImagesSku] = useState<string | null>(null);
+  const [newImageUrl, setNewImageUrl] = useState('');
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(0);
@@ -78,13 +91,23 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
   }, [loadInventoryItems]);
   
   // Get current value (edited or original)
-  const getCurrentValue = (sku: string, field: 'title' | 'description') => {
+  const getCurrentTitle = (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
-    return editedItems[sku]?.[field] ?? item?.product?.[field] ?? '';
+    return editedItems[sku]?.title ?? item?.product?.title ?? '';
+  };
+  
+  const getCurrentDescription = (sku: string) => {
+    const item = inventoryItems.find(i => i.sku === sku);
+    return editedItems[sku]?.description ?? item?.product?.description ?? '';
+  };
+  
+  const getCurrentImages = (sku: string): string[] => {
+    const item = inventoryItems.find(i => i.sku === sku);
+    return editedItems[sku]?.imageUrls ?? item?.product?.imageUrls ?? [];
   };
   
   // Update local edited value
-  const updateEditedValue = (sku: string, field: string, value: string) => {
+  const updateEditedValue = (sku: string, field: keyof EditedProduct, value: any) => {
     setEditedItems(prev => ({
       ...prev,
       [sku]: {
@@ -94,7 +117,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     }));
   };
   
-  // AI Agent: Generate Title
+  // AI Agent: Generate Title - uses existing product info
   const handleGenerateTitle = async (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     if (!item) return;
@@ -102,15 +125,31 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     setProcessingTitle(prev => new Set(prev).add(sku));
     
     try {
-      const productName = item.product?.title || sku;
+      // Get existing product info for context
+      const existingTitle = item.product?.title || sku;
+      const existingDescription = item.product?.description || '';
+      const brand = item.product?.brand || '';
       const ean = item.product?.ean?.[0] || '';
+      const aspects = item.product?.aspects ? JSON.stringify(item.product.aspects) : '';
+      
+      // Build context from existing data
+      const contextInfo = `
+ISTNIEJĄCE DANE PRODUKTU (użyj jako kontekst):
+- Aktualny tytuł: ${existingTitle}
+- Marka: ${brand}
+- EAN: ${ean}
+- Cechy: ${aspects}
+- Fragment opisu: ${existingDescription.substring(0, 500)}...
+
+${settings.aiRules.titleRules || 'Max 80 znaków, niemiecki, profesjonalny.'}
+`;
       
       const result = await generateProductDetails(
         settings.geminiKey,
-        settings.geminiModels.titleDescription,
-        productName,
-        ean,
-        settings.aiRules.titleRules || 'Max 80 chars, German, include brand.',
+        existingTitle,  // name
+        ean,            // ean
+        contextInfo,    // instructions with context
+        settings.geminiModels.titleDescription,  // model
         settings.aiInstructions.titlePrompt,
         settings.aiInstructions.descriptionPrompt
       );
@@ -129,7 +168,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     }
   };
   
-  // AI Agent: Generate Description
+  // AI Agent: Generate Description - uses existing product info
   const handleGenerateDescription = async (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     if (!item) return;
@@ -137,18 +176,35 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     setProcessingDescription(prev => new Set(prev).add(sku));
     
     try {
-      const productName = item.product?.title || sku;
+      const existingTitle = item.product?.title || sku;
+      const existingDescription = item.product?.description || '';
+      const brand = item.product?.brand || '';
       const ean = item.product?.ean?.[0] || '';
+      const aspects = item.product?.aspects ? JSON.stringify(item.product.aspects) : '';
       
-      // Include company banner in description rules
-      const descriptionRules = `${settings.aiRules.descriptionRules || 'HTML, German, professional.'}\n\nDODAJ NA KONIEC OPISU TEN BANER FIRMOWY (bez zmian):\n${settings.companyBanner || ''}`;
+      // Build rich context from existing data
+      const contextInfo = `
+ISTNIEJĄCE DANE PRODUKTU (użyj jako podstawę do nowego opisu):
+- Tytuł: ${existingTitle}
+- Marka: ${brand}
+- EAN: ${ean}
+- Cechy produktu: ${aspects}
+
+AKTUALNY OPIS (przepisz i ulepsz w HTML):
+${existingDescription}
+
+${settings.aiRules.descriptionRules || 'HTML, niemiecki, profesjonalny.'}
+
+DODAJ NA KONIEC OPISU TEN BANER FIRMOWY (bez zmian):
+${settings.companyBanner || ''}
+`;
       
       const result = await generateProductDetails(
         settings.geminiKey,
-        settings.geminiModels.titleDescription,
-        productName,
-        ean,
-        descriptionRules,
+        existingTitle,  // name
+        ean,            // ean  
+        contextInfo,    // instructions with full context
+        settings.geminiModels.titleDescription,  // model
         settings.aiInstructions.titlePrompt,
         settings.aiInstructions.descriptionPrompt
       );
@@ -167,25 +223,43 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
     }
   };
   
-  // AI Agent: Generate SKU (note: SKU cannot be changed after creation on eBay)
-  const handleGenerateSku = async (sku: string) => {
-    // SKU cannot be changed on eBay after item is created
-    // This is just for display/reference
-    onError('SKU nie może być zmienione po utworzeniu produktu na eBay. Możesz tylko skopiować sugestię.');
+  // Image management
+  const handleAddImage = (sku: string) => {
+    if (!newImageUrl.trim()) return;
+    
+    const currentImages = getCurrentImages(sku);
+    updateEditedValue(sku, 'imageUrls', [...currentImages, newImageUrl.trim()]);
+    setNewImageUrl('');
+  };
+  
+  const handleRemoveImage = (sku: string, index: number) => {
+    const currentImages = getCurrentImages(sku);
+    const newImages = currentImages.filter((_, i) => i !== index);
+    updateEditedValue(sku, 'imageUrls', newImages);
+  };
+  
+  const handleMoveImage = (sku: string, index: number, direction: 'up' | 'down') => {
+    const currentImages = [...getCurrentImages(sku)];
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= currentImages.length) return;
+    
+    [currentImages[index], currentImages[newIndex]] = [currentImages[newIndex], currentImages[index]];
+    updateEditedValue(sku, 'imageUrls', currentImages);
   };
   
   // Save changes to eBay
   const handleSaveToEbay = async (sku: string) => {
     const item = inventoryItems.find(i => i.sku === sku);
     const edits = editedItems[sku];
-    if (!item || !edits) return;
+    if (!item) return;
     
     try {
       // Prepare updated inventory item
       const updatedProduct = {
         ...item.product,
-        title: edits.title ?? item.product?.title,
-        description: edits.description ?? item.product?.description
+        title: edits?.title ?? item.product?.title,
+        description: edits?.description ?? item.product?.description,
+        imageUrls: edits?.imageUrls ?? item.product?.imageUrls
       };
       
       const payload = {
@@ -276,7 +350,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Treści produktów eBay</h2>
           <p className="text-sm text-slate-500 mt-1">
-            Zarządzaj tytułami i opisami produktów z eBay za pomocą AI
+            Zarządzaj tytułami, opisami i zdjęciami produktów z eBay za pomocą AI
           </p>
         </div>
         
@@ -292,7 +366,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
             </>
           ) : (
             <>
-              🔄 Odśwież
+              🔄 Odśwież z eBay
             </>
           )}
         </button>
@@ -340,7 +414,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
             onClick={handleBulkSave}
             className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
           >
-            💾 Zapisz wszystkie
+            💾 Zapisz wszystkie do eBay
           </button>
         </div>
       )}
@@ -350,7 +424,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
         <table className="w-full">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-4 py-3 text-left">
+              <th className="px-3 py-3 text-left">
                 <input
                   type="checkbox"
                   checked={selectedItems.size === inventoryItems.length && inventoryItems.length > 0}
@@ -358,11 +432,11 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
                   className="rounded"
                 />
               </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Zdjęcie</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">SKU</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Tytuł</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Opis</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Akcje</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Zdjęcia</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">SKU / EAN</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Tytuł</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Opis</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Akcje</th>
             </tr>
           </thead>
           <tbody>
@@ -370,11 +444,11 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
               const hasEdits = !!editedItems[item.sku];
               const isProcessingT = processingTitle.has(item.sku);
               const isProcessingD = processingDescription.has(item.sku);
-              const isProcessingS = processingSku.has(item.sku);
+              const images = getCurrentImages(item.sku);
               
               return (
                 <tr key={item.sku} className={`border-b border-slate-100 hover:bg-slate-50 ${hasEdits ? 'bg-yellow-50' : ''}`}>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-3">
                     <input
                       type="checkbox"
                       checked={selectedItems.has(item.sku)}
@@ -383,87 +457,94 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
                     />
                   </td>
                   
-                  {/* Thumbnail */}
-                  <td className="px-4 py-3">
-                    {item.product?.imageUrls?.[0] ? (
-                      <img
-                        src={item.product.imageUrls[0]}
-                        alt={item.sku}
-                        className="w-16 h-16 object-cover rounded-lg border border-slate-200"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="%23ccc"><rect width="64" height="64"/><text x="32" y="32" text-anchor="middle" dy=".3em" fill="%23666" font-size="10">No img</text></svg>';
-                        }}
-                      />
-                    ) : (
-                      <div className="w-16 h-16 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs">
-                        No img
-                      </div>
-                    )}
+                  {/* Thumbnails + Image Management */}
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-1">
+                      {images.slice(0, 2).map((url, i) => (
+                        <img
+                          key={i}
+                          src={url}
+                          alt={`${item.sku}-${i}`}
+                          className="w-12 h-12 object-cover rounded border border-slate-200"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="%23ddd"><rect width="48" height="48"/><text x="24" y="28" text-anchor="middle" fill="%23999" font-size="8">ERR</text></svg>';
+                          }}
+                        />
+                      ))}
+                      {images.length > 2 && (
+                        <span className="text-xs text-slate-400">+{images.length - 2}</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setEditingImagesSku(item.sku)}
+                      className="mt-1 px-2 py-0.5 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200"
+                    >
+                      📷 Zarządzaj ({images.length})
+                    </button>
                   </td>
                   
-                  {/* SKU */}
-                  <td className="px-4 py-3">
-                    <div className="font-mono text-sm text-slate-700">{item.sku}</div>
+                  {/* SKU / EAN */}
+                  <td className="px-3 py-3">
+                    <div className="font-mono text-sm text-slate-700 font-medium">{item.sku}</div>
                     <div className="text-xs text-slate-400">
                       {item.product?.ean?.[0] && `EAN: ${item.product.ean[0]}`}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {item.product?.brand && `Marka: ${item.product.brand}`}
                     </div>
                   </td>
                   
                   {/* Title */}
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
-                      <textarea
-                        value={getCurrentValue(item.sku, 'title')}
-                        onChange={(e) => updateEditedValue(item.sku, 'title', e.target.value)}
-                        className="w-full text-sm border border-slate-200 rounded px-2 py-1 resize-none"
-                        rows={2}
-                        maxLength={80}
-                      />
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleGenerateTitle(item.sku)}
-                          disabled={isProcessingT}
-                          className="px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 disabled:opacity-50"
-                        >
-                          {isProcessingT ? '⟳' : '🤖'} AI Tytuł
-                        </button>
-                        <span className="text-xs text-slate-400">
-                          {getCurrentValue(item.sku, 'title').length}/80
-                        </span>
-                      </div>
+                  <td className="px-3 py-3 max-w-xs">
+                    <textarea
+                      value={getCurrentTitle(item.sku)}
+                      onChange={(e) => updateEditedValue(item.sku, 'title', e.target.value)}
+                      className="w-full text-sm border border-slate-200 rounded px-2 py-1 resize-none"
+                      rows={2}
+                      maxLength={80}
+                    />
+                    <div className="flex items-center gap-2 mt-1">
+                      <button
+                        onClick={() => handleGenerateTitle(item.sku)}
+                        disabled={isProcessingT}
+                        className="px-2 py-0.5 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 disabled:opacity-50"
+                      >
+                        {isProcessingT ? '⟳ Generuję...' : '🤖 AI Tytuł'}
+                      </button>
+                      <span className="text-xs text-slate-400">
+                        {getCurrentTitle(item.sku).length}/80
+                      </span>
                     </div>
                   </td>
                   
                   {/* Description */}
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
-                      <div 
-                        className="w-48 h-16 text-xs border border-slate-200 rounded px-2 py-1 overflow-hidden bg-slate-50"
-                        dangerouslySetInnerHTML={{ 
-                          __html: getCurrentValue(item.sku, 'description').substring(0, 200) + '...' 
-                        }}
-                      />
-                      <button
-                        onClick={() => handleGenerateDescription(item.sku)}
-                        disabled={isProcessingD}
-                        className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50 w-fit"
-                      >
-                        {isProcessingD ? '⟳' : '📝'} AI Opis
-                      </button>
-                    </div>
+                  <td className="px-3 py-3">
+                    <div 
+                      className="w-40 h-14 text-xs border border-slate-200 rounded p-1 overflow-hidden bg-slate-50 cursor-pointer hover:border-slate-400"
+                      onClick={() => setEditingDescriptionSku(item.sku)}
+                      dangerouslySetInnerHTML={{ 
+                        __html: getCurrentDescription(item.sku).substring(0, 150) + '...' 
+                      }}
+                    />
+                    <button
+                      onClick={() => handleGenerateDescription(item.sku)}
+                      disabled={isProcessingD}
+                      className="mt-1 px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50"
+                    >
+                      {isProcessingD ? '⟳ Generuję...' : '📝 AI Opis'}
+                    </button>
                   </td>
                   
                   {/* Actions */}
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-2">
-                      {hasEdits && (
-                        <button
-                          onClick={() => handleSaveToEbay(item.sku)}
-                          className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700"
-                        >
-                          💾 Zapisz do eBay
-                        </button>
-                      )}
+                  <td className="px-3 py-3">
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => handleSaveToEbay(item.sku)}
+                        disabled={!hasEdits}
+                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-slate-300"
+                      >
+                        💾 Zapisz do eBay
+                      </button>
                       <button
                         onClick={() => {
                           setEditedItems(prev => {
@@ -473,9 +554,9 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
                           });
                         }}
                         disabled={!hasEdits}
-                        className="px-3 py-1.5 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200 disabled:opacity-50"
+                        className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200 disabled:opacity-50"
                       >
-                        ↩️ Cofnij zmiany
+                        ↩️ Cofnij
                       </button>
                     </div>
                   </td>
@@ -486,7 +567,7 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
             {inventoryItems.length === 0 && !isLoading && (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-slate-400">
-                  Brak produktów w magazynie eBay. Najpierw opublikuj produkty.
+                  Brak produktów w magazynie eBay. Najpierw opublikuj produkty w zakładce "Produkty".
                 </td>
               </tr>
             )}
@@ -525,6 +606,151 @@ const ContentTab: React.FC<ContentTabProps> = ({ settings, onError }) => {
           >
             Następna →
           </button>
+        </div>
+      )}
+      
+      {/* Description Edit Modal */}
+      {editingDescriptionSku && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold">Edycja opisu: {editingDescriptionSku}</h3>
+              <button
+                onClick={() => setEditingDescriptionSku(null)}
+                className="text-slate-400 hover:text-slate-600 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            
+            <textarea
+              value={getCurrentDescription(editingDescriptionSku)}
+              onChange={(e) => updateEditedValue(editingDescriptionSku, 'description', e.target.value)}
+              className="w-full h-96 font-mono text-sm border border-slate-300 rounded-lg p-3"
+            />
+            
+            <div className="mt-4 p-4 bg-slate-50 rounded-lg">
+              <h4 className="font-semibold mb-2">Podgląd HTML:</h4>
+              <div 
+                className="bg-white border border-slate-200 rounded p-4 max-h-64 overflow-auto"
+                dangerouslySetInnerHTML={{ __html: getCurrentDescription(editingDescriptionSku) }}
+              />
+            </div>
+            
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => handleGenerateDescription(editingDescriptionSku)}
+                disabled={processingDescription.has(editingDescriptionSku)}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+              >
+                {processingDescription.has(editingDescriptionSku) ? '⟳ Generuję...' : '🤖 Generuj AI'}
+              </button>
+              <button
+                onClick={() => setEditingDescriptionSku(null)}
+                className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700"
+              >
+                Zamknij
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Images Management Modal */}
+      {editingImagesSku && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold">Zarządzanie zdjęciami: {editingImagesSku}</h3>
+              <button
+                onClick={() => setEditingImagesSku(null)}
+                className="text-slate-400 hover:text-slate-600 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            
+            {/* Current images */}
+            <div className="space-y-2 mb-4">
+              {getCurrentImages(editingImagesSku).map((url, index) => (
+                <div key={index} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
+                  <img
+                    src={url}
+                    alt={`img-${index}`}
+                    className="w-16 h-16 object-cover rounded"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="%23ddd"><rect width="64" height="64"/><text x="32" y="36" text-anchor="middle" fill="%23999" font-size="10">ERR</text></svg>';
+                    }}
+                  />
+                  <input
+                    type="text"
+                    value={url}
+                    readOnly
+                    className="flex-1 text-xs bg-white border border-slate-200 rounded px-2 py-1"
+                  />
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => handleMoveImage(editingImagesSku, index, 'up')}
+                      disabled={index === 0}
+                      className="px-2 py-1 text-xs bg-slate-200 rounded disabled:opacity-30"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      onClick={() => handleMoveImage(editingImagesSku, index, 'down')}
+                      disabled={index === getCurrentImages(editingImagesSku).length - 1}
+                      className="px-2 py-1 text-xs bg-slate-200 rounded disabled:opacity-30"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      onClick={() => handleRemoveImage(editingImagesSku, index)}
+                      className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              ))}
+              
+              {getCurrentImages(editingImagesSku).length === 0 && (
+                <div className="text-center py-8 text-slate-400">
+                  Brak zdjęć. Dodaj poniżej.
+                </div>
+              )}
+            </div>
+            
+            {/* Add new image */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newImageUrl}
+                onChange={(e) => setNewImageUrl(e.target.value)}
+                placeholder="Wklej URL zdjęcia (https://...)"
+                className="flex-1 border border-slate-300 rounded-lg px-3 py-2"
+              />
+              <button
+                onClick={() => handleAddImage(editingImagesSku)}
+                disabled={!newImageUrl.trim()}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300"
+              >
+                ➕ Dodaj
+              </button>
+            </div>
+            
+            <div className="mt-2 text-xs text-slate-400">
+              Wspierane: bezpośrednie linki do obrazów. Linki Google Drive zostaną automatycznie skonwertowane.
+            </div>
+            
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => setEditingImagesSku(null)}
+                className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700"
+              >
+                Zamknij
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
