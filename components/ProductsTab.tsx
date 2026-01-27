@@ -1068,15 +1068,59 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
         const brand = titleParts[0] || 'Unknown';
         const model = titleParts.slice(1).join(' ') || product.inputName || 'Unknown';
 
+        // Fetch required aspects for this category
+        let requiredAspects: Record<string, string[]> = {
+          'Marke': [brand],
+          'Modell': [model]
+        };
+        
+        if (product.ebayCategoryId) {
+          try {
+            const aspectsResponse = await fetch(`${API_BASE}/category/aspects/${product.ebayCategoryId}`, {
+              method: 'GET',
+              credentials: 'include'
+            });
+            if (aspectsResponse.ok) {
+              const aspectsData = await aspectsResponse.json();
+              console.log('📋 Required aspects for category:', aspectsData.required?.map((a: any) => a.name));
+              
+              // Build aspects object with default values for required aspects
+              for (const aspect of (aspectsData.required || [])) {
+                const aspectName = aspect.name;
+                if (!requiredAspects[aspectName]) {
+                  // Set smart defaults based on aspect name
+                  if (aspectName === 'Marke' || aspectName === 'Brand') {
+                    requiredAspects[aspectName] = [brand];
+                  } else if (aspectName === 'Modell' || aspectName === 'Model') {
+                    requiredAspects[aspectName] = [model];
+                  } else if (aspectName === 'Konnektivität' || aspectName === 'Connectivity') {
+                    requiredAspects[aspectName] = ['Bluetooth'];
+                  } else if (aspectName === 'Farbe' || aspectName === 'Color' || aspectName === 'Colour') {
+                    requiredAspects[aspectName] = ['Schwarz'];
+                  } else if (aspectName === 'Formfaktor' || aspectName === 'Form Factor') {
+                    requiredAspects[aspectName] = ['In-Ear'];
+                  } else if (aspectName === 'Produktart' || aspectName === 'Type') {
+                    requiredAspects[aspectName] = ['Ohrhörer'];
+                  } else if (aspect.values && aspect.values.length > 0) {
+                    // Use first available value as default
+                    requiredAspects[aspectName] = [aspect.values[0]];
+                  } else {
+                    requiredAspects[aspectName] = ['Nicht zutreffend'];
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Could not fetch aspects:', e);
+          }
+        }
+
         // Step 1: Create/Update Inventory Item
         inventoryPayload = {
           product: {
             title: product.title,
             description: product.descriptionHtml,
-            aspects: {
-              'Marke': [brand],
-              'Modell': [model]
-            },
+            aspects: requiredAspects,
             brand: brand,
             mpn: model,
             ean: [product.ean]
@@ -1088,6 +1132,8 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
             }
           }
         };
+
+        console.log('📦 Inventory payload aspects:', requiredAspects);
 
         const invResponse = await fetch(`${API_BASE}/inventory/${encodeURIComponent(product.sku)}`, {
           method: 'PUT',

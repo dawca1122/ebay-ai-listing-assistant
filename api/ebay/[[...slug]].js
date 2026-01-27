@@ -152,6 +152,10 @@ export default async function handler(req, res) {
       return handleCategorySuggest(req, res);
     }
     
+    if (path.startsWith('category/aspects/')) {
+      return handleCategoryAspects(req, res, path);
+    }
+    
     // ==========================================================================
     // STORE ROUTES
     // ==========================================================================
@@ -945,6 +949,82 @@ async function handleCategorySuggest(req, res) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
     console.error('[eBay API] Category suggest error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// =============================================================================
+// Taxonomy Handler - Get Required Aspects for Category
+// =============================================================================
+
+async function handleCategoryAspects(req, res, path) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  const categoryId = path.replace('category/aspects/', '');
+  
+  try {
+    const { accessToken } = await getValidAccessToken(req, res);
+    const { environment } = getEbayCredentials();
+    const apiBase = getEbayBaseUrl(environment);
+    
+    // Category tree ID 77 is for EBAY_DE
+    const url = `${apiBase}/commerce/taxonomy/v1/category_tree/77/get_item_aspects_for_category?category_id=${categoryId}`;
+    console.log('[eBay Aspects] Fetching aspects for category:', categoryId);
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json'
+      }
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error('[eBay Aspects] Error:', data);
+      return res.status(response.status).json(data);
+    }
+    
+    // Extract only required aspects with aspectRequired: true
+    const requiredAspects = (data.aspects || [])
+      .filter(a => a.aspectConstraint?.aspectRequired === true)
+      .map(a => ({
+        name: a.localizedAspectName,
+        dataType: a.aspectConstraint?.aspectDataType,
+        mode: a.aspectConstraint?.aspectMode,
+        cardinality: a.aspectConstraint?.itemToAspectCardinality,
+        values: (a.aspectValues || []).slice(0, 50).map(v => v.localizedValue)
+      }));
+    
+    // Also get recommended aspects
+    const recommendedAspects = (data.aspects || [])
+      .filter(a => a.aspectConstraint?.aspectUsage === 'RECOMMENDED' && a.aspectConstraint?.aspectRequired !== true)
+      .slice(0, 20)
+      .map(a => ({
+        name: a.localizedAspectName,
+        dataType: a.aspectConstraint?.aspectDataType,
+        mode: a.aspectConstraint?.aspectMode,
+        cardinality: a.aspectConstraint?.itemToAspectCardinality,
+        values: (a.aspectValues || []).slice(0, 50).map(v => v.localizedValue)
+      }));
+    
+    console.log('[eBay Aspects] Required:', requiredAspects.map(a => a.name));
+    
+    return res.status(200).json({
+      categoryId,
+      required: requiredAspects,
+      recommended: recommendedAspects,
+      totalAspects: data.aspects?.length || 0
+    });
+    
+  } catch (error) {
+    if (error.message === 'NOT_AUTHENTICATED') {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    console.error('[eBay API] Aspects error:', error);
     return res.status(500).json({ error: error.message });
   }
 }
