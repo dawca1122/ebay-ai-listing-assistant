@@ -50,6 +50,17 @@ function setTokenCookies(res, tokens) {
 }
 
 function getTokensFromCookies(req) {
+  // Check for token in Authorization header
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      return JSON.parse(Buffer.from(authHeader.replace('Bearer ', ''), 'base64').toString('utf-8'));
+    } catch (e) {
+      console.error('Invalid Bearer token:', e);
+      return null;
+    }
+  }
+  // Fall back to cookies if Authorization header is missing
   const cookies = cookie.parse(req.headers.cookie || '');
   if (!cookies.ebay_tokens) return null;
   
