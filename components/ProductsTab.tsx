@@ -1137,6 +1137,12 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, setProducts, settin
                   }
                 }
               }
+            } else {
+              // Log the actual error from eBay for debugging
+              const errorData = await aspectsResponse.json().catch(() => ({}));
+              console.error('❌ Failed to fetch aspects for category', product.ebayCategoryId, ':', errorData);
+              console.warn('⚠️ Using fallback aspects (Marke, Modell only). This may cause publish errors!');
+              console.warn('   Hint:', errorData.hint || 'Check if category ID is a valid leaf category in EBAY_DE');
             }
           } catch (e) {
             console.warn('Could not fetch aspects:', e);

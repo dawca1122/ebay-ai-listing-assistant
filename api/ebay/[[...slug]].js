@@ -1026,8 +1026,21 @@ async function handleCategoryAspects(req, res, path) {
     const data = await response.json();
     
     if (!response.ok) {
-      console.error('[eBay Aspects] Error:', data);
-      return res.status(response.status).json(data);
+      console.error('[eBay Aspects] Error for category', categoryId, ':', JSON.stringify(data));
+      // Return more detailed error info
+      const ebayError = data.errors?.[0];
+      return res.status(response.status).json({
+        error: ebayError?.message || 'Failed to get aspects',
+        errorId: ebayError?.errorId,
+        longMessage: ebayError?.longMessage,
+        categoryId,
+        hint: response.status === 400 
+          ? 'Category may not exist or may not be a leaf category in EBAY_DE (tree 77)'
+          : response.status === 401 
+            ? 'Token expired - reconnect eBay'
+            : 'Check category ID validity',
+        rawResponse: data
+      });
     }
     
     // Extract only required aspects with aspectRequired: true
